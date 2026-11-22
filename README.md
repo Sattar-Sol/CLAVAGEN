@@ -1,5 +1,5 @@
 # CLAVAGEN
-
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24446017.svg)](https://doi.org/10.5281/zenodo.24446017)
 **CL**assification · **A**lignment · **VA**riant calling · **GEN**otype & **GEN**ealogy
 
 ACMG/AMP variant classification for patients and families, from DNA, protein or Sanger sequences.
@@ -47,8 +47,8 @@ CLAVAGEN is a desktop application for individual patients and whole families:
 The only requirement is **Python 3.8 or newer** ([python.org](https://www.python.org/downloads/); on Windows tick *"Add Python to PATH"*).
 
 ```bash
-git clone https://github.com/<your-username>/clavagen.git
-cd clavagen
+git clone https://github.com/Sattar-Sol/CLAVAGEN.git
+cd CLAVAGEN
 ```
 
 | System | Start |
