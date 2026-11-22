@@ -1,0 +1,4 @@
+#!/bin/bash
+# Runs the launcher in the folder that contains this .app (keep the .app inside the CLAVAGEN folder)
+HERE="$(cd "$(dirname "$0")/../../.." && pwd)"
+exec "$HERE/tools/launch_mac.sh"

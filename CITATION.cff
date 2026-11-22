@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use CLAVAGEN, please cite it as below."
+title: "CLAVAGEN: ACMG/AMP variant classification for patients and families, from DNA, protein or Sanger sequences"
+version: 1.0.0
+date-released: 2026-11-21
+license: MIT
+repository-code: "https://github.com/<your-username>/clavagen"
+authors:
+  - family-names: "[Family name]"
+    given-names: "[Given name]"
+    affiliation: "[Affiliation]"
+keywords:
+  - ACMG/AMP
+  - variant classification
+  - clinical genetics
+  - Sanger sequencing
+  - family analysis
