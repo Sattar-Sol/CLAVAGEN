@@ -1,0 +1,14 @@
+##fileformat=VCFv4.2
+##source=CLAVAGEN_v1.0.0
+##fileDate=20261121
+##INFO=<ID=GENE,Number=1,Type=String,Description="Gene symbol">
+##INFO=<ID=HGVSC,Number=1,Type=String,Description="HGVS coding notation">
+##INFO=<ID=HGVSP,Number=1,Type=String,Description="HGVS protein notation">
+##INFO=<ID=CSQ,Number=1,Type=String,Description="Sequence Ontology consequence">
+##INFO=<ID=ACMG,Number=1,Type=String,Description="ACMG/AMP classification">
+##INFO=<ID=ACMG_CRIT,Number=.,Type=String,Description="ACMG criteria met">
+##INFO=<ID=ACMG_PTS,Number=1,Type=Integer,Description="Bayesian points (Tavtigian 2020)">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype (1/1 = apparent homozygous from consensus)">
+##contig=<ID=HBB_NM_000518.5,length=444>
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	P-003
+HBB_NM_000518.5	118	Q1V1	C	T	.	PASS	GENE=HBB;HGVSC=NM_000518.5:c.118C>T;HGVSP=p.(Gln40Ter);CSQ=stop_gained;ACMG=Pathogenic;ACMG_CRIT=PVS1,PM2_Supporting;ACMG_PTS=9	GT	1/1

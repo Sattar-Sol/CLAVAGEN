@@ -1,0 +1,20 @@
+{
+  "id": "P-001",
+  "sex": "female",
+  "age": "24",
+  "family": "",
+  "reference": "",
+  "relationship": "",
+  "affected": "unknown",
+  "parentage_confirmed": false,
+  "indication": "Anaemia work-up",
+  "phenotypes": [
+    "microcytic anaemia",
+    "vaso-occlusive pain crises"
+  ],
+  "evidence": [
+    "c.20A>T=PS3",
+    "c.20A>T=PS4"
+  ],
+  "notes": ""
+}

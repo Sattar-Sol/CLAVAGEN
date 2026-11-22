@@ -1,0 +1,66 @@
+{
+  "_comment": "DEMONSTRATION annotation. Population/in-silico values are illustrative, not real data.",
+  "gene": "HBB",
+  "transcript": "NM_000518.5",
+  "protein_id": "NP_000509.1",
+  "chrom": "HBB_NM_000518.5",
+  "cds": [
+    1,
+    444
+  ],
+  "exon_boundaries_c": [
+    92,
+    315
+  ],
+  "inheritance": "AR",
+  "lof_mechanism": true,
+  "domains": [
+    {
+      "name": "Globin",
+      "start": 3,
+      "end": 147,
+      "critical": false
+    },
+    {
+      "name": "Heme pocket (illustrative)",
+      "start": 63,
+      "end": 92,
+      "critical": true
+    }
+  ],
+  "known_variants": [
+    {
+      "hgvs_c": "c.20A>T",
+      "hgvs_p": "p.Glu7Val",
+      "classification": "Pathogenic",
+      "source": "ClinVar (HbS)"
+    },
+    {
+      "hgvs_c": "c.118C>T",
+      "hgvs_p": "p.Gln40Ter",
+      "classification": "Pathogenic",
+      "source": "ClinVar (beta0)"
+    },
+    {
+      "hgvs_c": "c.19G>A",
+      "hgvs_p": "p.Glu7Lys",
+      "classification": "Pathogenic",
+      "source": "ClinVar (HbC)"
+    }
+  ],
+  "population_dataset": "gnomAD (illustrative values)",
+  "population": {
+    "c.20A>T": {
+      "af": 0.004,
+      "source": "illustrative"
+    },
+    "c.9T>C": {
+      "af": 0.02,
+      "source": "illustrative"
+    }
+  },
+  "ba1_exceptions": [
+    "c.20A>T"
+  ],
+  "insilico": {}
+}

@@ -1,0 +1,25 @@
+{
+  "_comment": "Optional. Sets inheritance to AR for this constructed recessive test family (CELF2 disease DEE97 is autosomal dominant in reality), plus the CDS and exon junctions from the NCBI record so PVS1/NMD can be judged offline.",
+  "gene": "CELF2",
+  "transcript": "NM_001025077.3",
+  "protein_id": "NP_001020248.1",
+  "inheritance": "AR",
+  "cds": [
+    77,
+    1603
+  ],
+  "exon_boundaries_c": [
+    53,
+    250,
+    333,
+    382,
+    517,
+    597,
+    756,
+    820,
+    955,
+    1075,
+    1255,
+    1399
+  ]
+}

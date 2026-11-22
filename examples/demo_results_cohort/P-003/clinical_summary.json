@@ -1,0 +1,321 @@
+{
+  "meta": {
+    "software": "CLAVAGEN",
+    "version": "1.0.0",
+    "run_date": "2026-11-21T17:01:02",
+    "python": "3.13.18",
+    "aligner_mode": "local",
+    "strict_mode": false,
+    "annotation_file": "shared_inputs/annotation.json",
+    "online_annotation": false,
+    "manual_known_variants": 0,
+    "acmg_sf_version": "v3.3",
+    "patient": {
+      "id": "P-003",
+      "sex": "female",
+      "age": "2",
+      "indication": "Newborn screening follow-up"
+    },
+    "phenotypes": [],
+    "inputs": [
+      {
+        "id": "P-003",
+        "role": "query",
+        "type": "dna",
+        "length": 444,
+        "sha256": "bdd42e15b88e29ce707b8b5b16f3173b543aa48654c638efd7beb40d14e19a81",
+        "source": "/tmp/demo/20261121_170102_3_patients/P-003/inputs/query.fa"
+      },
+      {
+        "id": "HBB_NM_000518.5",
+        "role": "reference",
+        "type": "dna",
+        "length": 444,
+        "sha256": "838ee6276e734b829a5ca342989eb04464173f44da33ca3a5eb3267ad66a495e",
+        "source": "/home/claude/CLAVAGEN/examples/HBB_reference.fa"
+      }
+    ],
+    "guidelines": [
+      "ACMG/AMP 2015 (Richards et al.)",
+      "ClinGen SVI: PVS1 tree, PM2_Supporting, PP5/BP6 retired, REVEL calibration (Pejaver 2022)",
+      "Tavtigian points (2020)"
+    ]
+  },
+  "samples": [
+    {
+      "query": {
+        "id": "P-003",
+        "type": "dna",
+        "length": 444,
+        "sha256": "bdd42e15b88e29ce707b8b5b16f3173b543aa48654c638efd7beb40d14e19a81"
+      },
+      "reference": {
+        "id": "HBB_NM_000518.5",
+        "type": "dna",
+        "length": 444
+      },
+      "gene": "HBB",
+      "transcript": "NM_000518.5",
+      "mode": "dna",
+      "qc": {
+        "no_call_positions": [],
+        "ambiguous_uncallable": [],
+        "alignment": {
+          "alignment_length": 444,
+          "identities": 443,
+          "identity_pct": 99.77,
+          "similarity_pct": 99.77,
+          "gaps": 0,
+          "gap_pct": 0.0,
+          "ambiguous_compatible": 0,
+          "ref_coverage_pct": 100.0,
+          "query_coverage_pct": 100.0
+        },
+        "warnings": [],
+        "cds_coverage_pct": 100.0,
+        "no_call_count": 0,
+        "heterozygous_calls": 0,
+        "notes": [
+          "Zygosity is inferred from the input consensus: two-base IUPAC codes are called heterozygous; other calls are 'apparent homozygous'. Heterozygous indels need the trace (.ab1) or NGS allele counts."
+        ]
+      },
+      "clinical_summary": {
+        "gene": "HBB",
+        "inheritance": "AR",
+        "diseases": [
+          {
+            "name": "Sickle cell disease",
+            "mim": "603903",
+            "inheritance": "AR",
+            "summary": "Haemoglobinopathy caused by HbS (p.Glu7Val) in homozygous or compound-heterozygous state; carriers (sickle cell trait) are usually asymptomatic.",
+            "features": [
+              "haemolytic anaemia",
+              "vaso-occlusive pain crises",
+              "acute chest syndrome",
+              "stroke",
+              "splenic sequestration",
+              "increased infection risk"
+            ]
+          },
+          {
+            "name": "Beta-thalassaemia",
+            "mim": "613985",
+            "inheritance": "AR",
+            "summary": "Reduced (beta+) or absent (beta0) beta-globin synthesis; severity ranges from carrier (thalassaemia minor) to transfusion-dependent thalassaemia major.",
+            "features": [
+              "microcytic hypochromic anaemia",
+              "ineffective erythropoiesis",
+              "hepatosplenomegaly",
+              "iron overload",
+              "bone deformities"
+            ]
+          }
+        ],
+        "status": "Homozygous (apparent) - biallelic P/LP [null (nonsense) / null (nonsense)]",
+        "highest_class": "Pathogenic",
+        "interpretation": [
+          "HBB: homozygous (apparent) c.118C>T p.(Gln40Ter) - null (nonsense), Pathogenic.",
+          "Biallelic pathogenic genotype - consistent with Sickle cell disease, Beta-thalassaemia if the phenotype is concordant.",
+          "Both alleles are null (loss-of-function) variants: no functional protein is expected from either allele - typically the more severe end of the spectrum when loss of function is the disease mechanism.",
+          "Apparent homozygous P/LP variant(s) in HBB (p.(Gln40Ter)): consistent with a diagnosis of Sickle cell disease (AR), Beta-thalassaemia (AR) if the phenotype is concordant. Exclude allele drop-out / a large deletion on the other allele (parental testing)."
+        ],
+        "recommendations": [
+          "Confirm P/LP variant(s) with an orthogonal method (e.g. Sanger/NGS on a new sample).",
+          "Genetic counselling; offer cascade testing to at-risk relatives.",
+          "Haemoglobin electrophoresis/HPLC to confirm phenotype",
+          "Partner/reproductive carrier testing for AR condition",
+          "Haematology referral for affected individuals"
+        ],
+        "acmg_sf_gene": false,
+        "genotype": {
+          "gene": "HBB",
+          "inheritance": "AR",
+          "variants": [
+            {
+              "key": "HBB_NM_000518.5|dna|c.118C>T",
+              "name": "c.118C>T p.(Gln40Ter)",
+              "type": "null (nonsense)",
+              "type_group": "null",
+              "classification": "Pathogenic",
+              "zygosity": "homozygous/hemizygous (apparent)",
+              "files": [
+                "P-003"
+              ]
+            }
+          ],
+          "phase": null,
+          "phase_how": "",
+          "genotype": "homozygous (apparent)",
+          "allele_types": "null (nonsense) / null (nonsense)",
+          "status": "Homozygous (apparent) - biallelic P/LP [null (nonsense) / null (nonsense)]"
+        }
+      },
+      "annotation_sources": [
+        "Online annotation: off (offline mode).",
+        "Known pathogenic variants used for PS1/PM5/hotspots: 3 from ClinVar"
+      ],
+      "alignment": {
+        "score": 883.0,
+        "ref_span": [
+          1,
+          444
+        ],
+        "query_span": [
+          1,
+          444
+        ],
+        "backend": "biopython",
+        "alignment_length": 444,
+        "identities": 443,
+        "identity_pct": 99.77,
+        "similarity_pct": 99.77,
+        "gaps": 0,
+        "gap_pct": 0.0,
+        "ambiguous_compatible": 0,
+        "ref_coverage_pct": 100.0,
+        "query_coverage_pct": 100.0
+      },
+      "variants": [
+        {
+          "mol_type": "dna",
+          "kind": "SNV",
+          "ref_pos": 118,
+          "ref_end": 118,
+          "ref_allele": "C",
+          "alt_allele": "T",
+          "zygosity": "homozygous/hemizygous (apparent)",
+          "repeat_unit": "",
+          "repeat_copies": 0,
+          "notes": [
+            "Reported class taken from reviewed ClinVar record (Pathogenic); automated ACMG criteria alone give Likely pathogenic (9 points) because literature evidence (functional, case and segregation data) is not available to the software."
+          ],
+          "query_pos": 118,
+          "hgvs_c": "c.118C>T",
+          "hgvs_ref": "g.118C>T",
+          "region": "cds",
+          "intron_offset": null,
+          "consequence": "stop_gained",
+          "hgvs_p": "p.(Gln40Ter)",
+          "aa_pos": 40,
+          "ref_aa": "Q",
+          "alt_aa": "*",
+          "ptc_pos": 40,
+          "protein_length": 147,
+          "codon_change": "CAG>TAG",
+          "exon": 2,
+          "splice_region": false,
+          "aa_change": "Q40*",
+          "hgvs_c_short": "c.118C>T",
+          "hgvs_c_full": "NM_000518.5:c.118C>T",
+          "hgvs_p_full": "NP_000509.1:p.(Gln40Ter)",
+          "gene": "HBB",
+          "zygosity_short": "hom (apparent)",
+          "consequence_label": "Nonsense",
+          "domains": [
+            {
+              "name": "Globin",
+              "start": 3,
+              "end": 147,
+              "critical": false
+            }
+          ],
+          "domains_downstream": [
+            {
+              "name": "Globin",
+              "start": 3,
+              "end": 147,
+              "critical": false
+            },
+            {
+              "name": "Heme pocket (illustrative)",
+              "start": 63,
+              "end": 92,
+              "critical": true
+            }
+          ],
+          "id": "Q1V1",
+          "query_id": "P-003",
+          "ref_id": "HBB_NM_000518.5",
+          "population_af": null,
+          "population_source": "gnomAD (illustrative values)",
+          "insilico": {},
+          "database_assertions": [
+            "Pathogenic (ClinVar (beta0))"
+          ],
+          "clinvar_match": {
+            "hgvs_c": "c.118C>T",
+            "hgvs_p": "p.Gln40Ter",
+            "classification": "Pathogenic",
+            "source": "ClinVar (beta0)",
+            "match": "exact"
+          },
+          "criteria": [
+            {
+              "code": "PVS1",
+              "status": "met",
+              "strength": "VeryStrong",
+              "rationale": "Premature stop at codon 40 (c.118) lies >50 nt upstream of the last exon-exon junction (c.315/c.316); NMD predicted.",
+              "source": "automated",
+              "label": "PVS1",
+              "direction": "P",
+              "points": 8,
+              "description": "Null variant in a gene where loss of function is a known disease mechanism"
+            },
+            {
+              "code": "PM2",
+              "status": "met",
+              "strength": "Supporting",
+              "rationale": "Absent from gnomAD (illustrative values); PM2 applied at Supporting (ClinGen SVI 2020). Confirm adequate coverage at this position.",
+              "source": "automated",
+              "label": "PM2_Supporting",
+              "direction": "P",
+              "points": 1,
+              "description": "Absent / extremely rare in population databases"
+            },
+            {
+              "code": "PM3",
+              "status": "not_evaluated",
+              "strength": "",
+              "rationale": "AR gene: evaluate PM3 if a pathogenic variant is confirmed in trans (phasing required).",
+              "source": "automated",
+              "label": "PM3",
+              "direction": "P",
+              "points": 0,
+              "description": "For recessive disorders, detected in trans with a pathogenic variant"
+            }
+          ],
+          "classification": "Pathogenic",
+          "rule": "LP (ClinGen SVI): PVS1 + PP (e.g. PM2_Supporting)",
+          "points": 9,
+          "points_classification": "Likely pathogenic",
+          "vus_subtier": "",
+          "concordant": true,
+          "criteria_met": [
+            "PVS1",
+            "PM2_Supporting"
+          ],
+          "counts": {
+            "PVS": 1,
+            "PS": 0,
+            "PM": 0,
+            "PP": 1,
+            "BA": 0,
+            "BS": 0,
+            "BP": 0
+          },
+          "acmg_classification": "Likely pathogenic",
+          "classification_basis": "ClinVar (beta0) 0\u2605 (review status n/a; no assertion criteria - weak)",
+          "clinvar_classification": "Pathogenic",
+          "clinvar_stars": null,
+          "clinvar_review": "",
+          "clinvar_source": "ClinVar (beta0)",
+          "clinvar_conditions": [],
+          "clinvar_review_level": "no assertion criteria - weak",
+          "class_abbr": "P",
+          "interpretation": "Apparently homozygous nonsense variant NM_000518.5:c.118C>T p.(Gln40Ter) in HBB, classified as Pathogenic based on ClinVar (beta0) 0\u2605 (review status n/a; no assertion criteria - weak). Automated ACMG criteria: Likely pathogenic [PVS1, PM2_Supporting; 9 points]."
+        }
+      ]
+    }
+  ],
+  "disclaimer": "This report was generated by automated software for research and clinical decision support. ACMG/AMP criteria were applied automatically from sequence, user-supplied annotation and reviewer evidence; several criteria (PS2-PS4, PM3, PM6, PP1, BS2-BS4, BP2, BP5) require external data. Heuristic evidence is flagged. All classifications must be reviewed and signed off by a qualified clinical scientist / medical geneticist before clinical use."
+}

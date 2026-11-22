@@ -1,0 +1,17 @@
+{
+  "id": "P-002",
+  "sex": "male",
+  "age": "29",
+  "family": "",
+  "reference": "",
+  "relationship": "",
+  "affected": "unknown",
+  "parentage_confirmed": false,
+  "indication": "Partner screening",
+  "phenotypes": [
+    "mild anaemia",
+    "target cells"
+  ],
+  "evidence": [],
+  "notes": ""
+}

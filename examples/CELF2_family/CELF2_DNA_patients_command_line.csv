@@ -1,0 +1,8 @@
+id,family,relationship,affected,parentage_confirmed,sex,age,indication,phenotypes,evidence,query
+P1_Father,FAM-CELF2-01,father,unaffected,,male,45,Parental testing,,,1_DNA/P1_Father/P1_Father_CELF2_ampA_F.ab1;1_DNA/P1_Father/P1_Father_CELF2_ampB_R.ab1
+P2_Mother,FAM-CELF2-01,mother,unaffected,,female,43,Parental testing,,,1_DNA/P2_Mother/P2_Mother_CELF2_CDS_consensus.fasta
+P3_Child1,FAM-CELF2-01,sibling,unaffected,,female,17,Cascade testing,,,1_DNA/P3_Child1/P3_Child1_CELF2_CDS.seq
+P4_Child2,FAM-CELF2-01,sibling,unaffected,,male,15,Cascade testing,,,1_DNA/P4_Child2/P4_Child2_CELF2_ampA_F.ab1;1_DNA/P4_Child2/P4_Child2_CELF2_ampB_F.ab1
+P5_Child3,FAM-CELF2-01,sibling,unaffected,,female,13,Cascade testing,,,1_DNA/P5_Child3/P5_Child3_CELF2_amplicons.fa
+P6_Child4,FAM-CELF2-01,proband,affected,,male,9,Developmental delay and seizures,"developmental delay, seizures, intellectual disability, hypotonia",,1_DNA/P6_Child4/P6_Child4_CELF2_CDS_consensus.txt;1_DNA/P6_Child4/P6_Child4_CELF2_ampA_F.ab1;1_DNA/P6_Child4/P6_Child4_CELF2_ampB_F.ab1
+P7_Child5,FAM-CELF2-01,sibling,unaffected,,female,6,Cascade testing,,,1_DNA/P7_Child5/P7_Child5_CELF2_ampA_F.ab1;1_DNA/P7_Child5/P7_Child5_CELF2_ampB_F.ab1;1_DNA/P7_Child5/P7_Child5_CELF2_ampB_R.ab1

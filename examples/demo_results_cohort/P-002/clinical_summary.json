@@ -1,0 +1,351 @@
+{
+  "meta": {
+    "software": "CLAVAGEN",
+    "version": "1.0.0",
+    "run_date": "2026-11-21T17:01:02",
+    "python": "3.13.18",
+    "aligner_mode": "local",
+    "strict_mode": false,
+    "annotation_file": "shared_inputs/annotation.json",
+    "online_annotation": false,
+    "manual_known_variants": 0,
+    "acmg_sf_version": "v3.3",
+    "patient": {
+      "id": "P-002",
+      "sex": "male",
+      "age": "29",
+      "indication": "Partner screening"
+    },
+    "phenotypes": [
+      "mild anaemia",
+      "target cells"
+    ],
+    "inputs": [
+      {
+        "id": "P-002",
+        "role": "query",
+        "type": "dna",
+        "length": 444,
+        "sha256": "49042fbab91a659b44a6bee07f3b58694c632e8706701402b49b0c0fec549d1a",
+        "source": "/tmp/demo/20261121_170102_3_patients/P-002/inputs/query.fa"
+      },
+      {
+        "id": "HBB_NM_000518.5",
+        "role": "reference",
+        "type": "dna",
+        "length": 444,
+        "sha256": "838ee6276e734b829a5ca342989eb04464173f44da33ca3a5eb3267ad66a495e",
+        "source": "/home/claude/CLAVAGEN/examples/HBB_reference.fa"
+      }
+    ],
+    "guidelines": [
+      "ACMG/AMP 2015 (Richards et al.)",
+      "ClinGen SVI: PVS1 tree, PM2_Supporting, PP5/BP6 retired, REVEL calibration (Pejaver 2022)",
+      "Tavtigian points (2020)"
+    ]
+  },
+  "samples": [
+    {
+      "query": {
+        "id": "P-002",
+        "type": "dna",
+        "length": 444,
+        "sha256": "49042fbab91a659b44a6bee07f3b58694c632e8706701402b49b0c0fec549d1a"
+      },
+      "reference": {
+        "id": "HBB_NM_000518.5",
+        "type": "dna",
+        "length": 444
+      },
+      "gene": "HBB",
+      "transcript": "NM_000518.5",
+      "mode": "dna",
+      "qc": {
+        "no_call_positions": [],
+        "ambiguous_uncallable": [],
+        "alignment": {
+          "alignment_length": 444,
+          "identities": 443,
+          "identity_pct": 99.77,
+          "similarity_pct": 100.0,
+          "gaps": 0,
+          "gap_pct": 0.0,
+          "ambiguous_compatible": 1,
+          "ref_coverage_pct": 100.0,
+          "query_coverage_pct": 100.0
+        },
+        "warnings": [],
+        "cds_coverage_pct": 100.0,
+        "no_call_count": 0,
+        "heterozygous_calls": 1,
+        "notes": [
+          "1 ambiguous/IUPAC base(s) present",
+          "Zygosity is inferred from the input consensus: two-base IUPAC codes are called heterozygous; other calls are 'apparent homozygous'. Heterozygous indels need the trace (.ab1) or NGS allele counts."
+        ]
+      },
+      "clinical_summary": {
+        "gene": "HBB",
+        "inheritance": "AR",
+        "diseases": [
+          {
+            "name": "Sickle cell disease",
+            "mim": "603903",
+            "inheritance": "AR",
+            "summary": "Haemoglobinopathy caused by HbS (p.Glu7Val) in homozygous or compound-heterozygous state; carriers (sickle cell trait) are usually asymptomatic.",
+            "features": [
+              "haemolytic anaemia",
+              "vaso-occlusive pain crises",
+              "acute chest syndrome",
+              "stroke",
+              "splenic sequestration",
+              "increased infection risk"
+            ]
+          },
+          {
+            "name": "Beta-thalassaemia",
+            "mim": "613985",
+            "inheritance": "AR",
+            "summary": "Reduced (beta+) or absent (beta0) beta-globin synthesis; severity ranges from carrier (thalassaemia minor) to transfusion-dependent thalassaemia major.",
+            "features": [
+              "microcytic hypochromic anaemia",
+              "ineffective erythropoiesis",
+              "hepatosplenomegaly",
+              "iron overload",
+              "bone deformities"
+            ]
+          }
+        ],
+        "status": "Heterozygous carrier of a P/LP variant (AR condition)",
+        "highest_class": "Pathogenic",
+        "interpretation": [
+          "HBB: heterozygous c.19G>A p.(Glu7Lys) - missense, Pathogenic.",
+          "Single heterozygous P/LP variant in HBB associated with autosomal recessive Sickle cell disease (AR), Beta-thalassaemia (AR): consistent with carrier status. A second variant (including CNV or deep intronic) should be sought if the phenotype is strongly suggestive."
+        ],
+        "recommendations": [
+          "Offer partner / reproductive carrier testing.",
+          "Confirm P/LP variant(s) with an orthogonal method (e.g. Sanger/NGS on a new sample).",
+          "Genetic counselling; offer cascade testing to at-risk relatives.",
+          "Haemoglobin electrophoresis/HPLC to confirm phenotype",
+          "Partner/reproductive carrier testing for AR condition",
+          "Haematology referral for affected individuals"
+        ],
+        "acmg_sf_gene": false,
+        "genotype": {
+          "gene": "HBB",
+          "inheritance": "AR",
+          "variants": [
+            {
+              "key": "HBB_NM_000518.5|dna|c.19G>A",
+              "name": "c.19G>A p.(Glu7Lys)",
+              "type": "missense",
+              "type_group": "missense",
+              "classification": "Pathogenic",
+              "zygosity": "heterozygous",
+              "files": [
+                "P-002"
+              ]
+            }
+          ],
+          "phase": null,
+          "phase_how": "",
+          "genotype": "heterozygous",
+          "allele_types": "missense",
+          "status": null
+        }
+      },
+      "annotation_sources": [
+        "Online annotation: off (offline mode).",
+        "Known pathogenic variants used for PS1/PM5/hotspots: 3 from ClinVar"
+      ],
+      "alignment": {
+        "score": 887.5,
+        "ref_span": [
+          1,
+          444
+        ],
+        "query_span": [
+          1,
+          444
+        ],
+        "backend": "biopython",
+        "alignment_length": 444,
+        "identities": 443,
+        "identity_pct": 99.77,
+        "similarity_pct": 100.0,
+        "gaps": 0,
+        "gap_pct": 0.0,
+        "ambiguous_compatible": 1,
+        "ref_coverage_pct": 100.0,
+        "query_coverage_pct": 100.0
+      },
+      "variants": [
+        {
+          "mol_type": "dna",
+          "kind": "SNV",
+          "ref_pos": 19,
+          "ref_end": 19,
+          "ref_allele": "G",
+          "alt_allele": "A",
+          "zygosity": "heterozygous",
+          "repeat_unit": "",
+          "repeat_copies": 0,
+          "notes": [
+            "IUPAC code R in query interpreted as heterozygous G/A",
+            "Reported class taken from reviewed ClinVar record (Pathogenic); automated ACMG criteria alone give Uncertain significance (4 points) because literature evidence (functional, case and segregation data) is not available to the software."
+          ],
+          "query_pos": 19,
+          "hgvs_c": "c.19G>A",
+          "hgvs_ref": "g.19G>A",
+          "region": "cds",
+          "intron_offset": null,
+          "consequence": "missense_variant",
+          "hgvs_p": "p.(Glu7Lys)",
+          "aa_pos": 7,
+          "ref_aa": "E",
+          "alt_aa": "K",
+          "ptc_pos": null,
+          "protein_length": 147,
+          "codon_change": "GAG>AAG",
+          "exon": 1,
+          "splice_region": false,
+          "aa_change": "E7K",
+          "hgvs_c_short": "c.19G>A",
+          "hgvs_c_full": "NM_000518.5:c.19G>A",
+          "hgvs_p_full": "NP_000509.1:p.(Glu7Lys)",
+          "gene": "HBB",
+          "zygosity_short": "het",
+          "consequence_label": "Missense",
+          "blosum62": 1,
+          "grantham": 57,
+          "grantham_category": "moderately conservative",
+          "aa_property_change": "negative -> positive",
+          "hydropathy_change": -0.4,
+          "domains": [
+            {
+              "name": "Globin",
+              "start": 3,
+              "end": 147,
+              "critical": false
+            }
+          ],
+          "domains_downstream": [],
+          "id": "Q1V1",
+          "query_id": "P-002",
+          "ref_id": "HBB_NM_000518.5",
+          "population_af": null,
+          "population_source": "gnomAD (illustrative values)",
+          "insilico": {},
+          "database_assertions": [
+            "Pathogenic (ClinVar (HbC))"
+          ],
+          "clinvar_match": {
+            "hgvs_c": "c.19G>A",
+            "hgvs_p": "p.Glu7Lys",
+            "classification": "Pathogenic",
+            "source": "ClinVar (HbC)",
+            "match": "exact"
+          },
+          "criteria": [
+            {
+              "code": "PM5",
+              "status": "met",
+              "strength": "Moderate",
+              "rationale": "Different pathogenic missense at the same residue: p.Glu7Val (Pathogenic, ClinVar (HbS)).",
+              "source": "database",
+              "label": "PM5",
+              "direction": "P",
+              "points": 2,
+              "description": "Novel missense at a residue where a different pathogenic missense is known"
+            },
+            {
+              "code": "PM1",
+              "status": "not_met",
+              "strength": "",
+              "rationale": "In domain Globin (not flagged critical/hotspot).",
+              "source": "automated",
+              "label": "PM1",
+              "direction": "P",
+              "points": 0,
+              "description": "Located in a mutational hot spot / critical functional domain"
+            },
+            {
+              "code": "PM2",
+              "status": "met",
+              "strength": "Supporting",
+              "rationale": "Absent from gnomAD (illustrative values); PM2 applied at Supporting (ClinGen SVI 2020). Confirm adequate coverage at this position.",
+              "source": "automated",
+              "label": "PM2_Supporting",
+              "direction": "P",
+              "points": 1,
+              "description": "Absent / extremely rare in population databases"
+            },
+            {
+              "code": "PP3",
+              "status": "not_met",
+              "strength": "",
+              "rationale": "Heuristic in-silico evidence indeterminate: BLOSUM62 +1, Grantham 57, negative->positive",
+              "source": "heuristic",
+              "label": "PP3",
+              "direction": "P",
+              "points": 0,
+              "description": "Computational evidence supports a deleterious effect"
+            },
+            {
+              "code": "PP4",
+              "status": "met",
+              "strength": "Supporting",
+              "rationale": "Patient phenotype matches the gene-disease spectrum (mild anaemia). Apply only if phenotype is highly specific for a single genetic aetiology.",
+              "source": "heuristic",
+              "label": "PP4",
+              "direction": "P",
+              "points": 1,
+              "description": "Patient phenotype / family history highly specific for the gene"
+            },
+            {
+              "code": "PM3",
+              "status": "not_evaluated",
+              "strength": "",
+              "rationale": "AR gene: evaluate PM3 if a pathogenic variant is confirmed in trans (phasing required).",
+              "source": "automated",
+              "label": "PM3",
+              "direction": "P",
+              "points": 0,
+              "description": "For recessive disorders, detected in trans with a pathogenic variant"
+            }
+          ],
+          "classification": "Pathogenic",
+          "rule": "Criteria for other classifications not met",
+          "points": 4,
+          "points_classification": "Uncertain significance",
+          "vus_subtier": "",
+          "concordant": true,
+          "criteria_met": [
+            "PM5",
+            "PM2_Supporting",
+            "PP4"
+          ],
+          "counts": {
+            "PVS": 0,
+            "PS": 0,
+            "PM": 1,
+            "PP": 2,
+            "BA": 0,
+            "BS": 0,
+            "BP": 0
+          },
+          "acmg_classification": "Uncertain significance",
+          "classification_basis": "ClinVar (HbC) 0\u2605 (review status n/a; no assertion criteria - weak)",
+          "clinvar_classification": "Pathogenic",
+          "clinvar_stars": null,
+          "clinvar_review": "",
+          "clinvar_source": "ClinVar (HbC)",
+          "clinvar_conditions": [],
+          "clinvar_review_level": "no assertion criteria - weak",
+          "class_abbr": "P",
+          "interpretation": "Heterozygous missense variant NM_000518.5:c.19G>A p.(Glu7Lys) in HBB, classified as Pathogenic based on ClinVar (HbC) 0\u2605 (review status n/a; no assertion criteria - weak). Automated ACMG criteria: Uncertain significance [PM5, PM2_Supporting, PP4; 4 points]."
+        }
+      ]
+    }
+  ],
+  "disclaimer": "This report was generated by automated software for research and clinical decision support. ACMG/AMP criteria were applied automatically from sequence, user-supplied annotation and reviewer evidence; several criteria (PS2-PS4, PM3, PM6, PP1, BS2-BS4, BP2, BP5) require external data. Heuristic evidence is flagged. All classifications must be reviewed and signed off by a qualified clinical scientist / medical geneticist before clinical use."
+}

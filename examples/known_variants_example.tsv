@@ -1,0 +1,5 @@
+# Known pathogenic variants - one per line: c. | p. | classification | source  (tab, comma, ; or | separated)
+c.20A>T	p.Glu7Val	Pathogenic	ClinVar / HbS
+c.19G>A	p.Glu7Lys	Pathogenic	ClinVar / HbC
+c.118C>T	p.Gln40Ter	Pathogenic	beta0-thalassaemia (codon 39)
+c.92+1G>A		Pathogenic	beta0-thalassaemia IVS1-1

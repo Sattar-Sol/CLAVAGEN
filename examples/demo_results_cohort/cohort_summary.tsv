@@ -1,0 +1,4 @@
+patient_id	sequence	gene	hgvs_c	hgvs_p	type	zygosity	classification	points	criteria	patient_result
+P-001	Patient_A	HBB	NM_000518.5:c.20A>T	p.(Glu7Val)	Missense	het	Pathogenic	12	PM5, PP3, PP4, PS3, PS4	Heterozygous carrier of a P/LP variant (AR condition)
+P-002	P-002	HBB	NM_000518.5:c.19G>A	p.(Glu7Lys)	Missense	het	Pathogenic	4	PM5, PM2_Supporting, PP4	Heterozygous carrier of a P/LP variant (AR condition)
+P-003	P-003	HBB	NM_000518.5:c.118C>T	p.(Gln40Ter)	Nonsense	hom (apparent)	Pathogenic	9	PVS1, PM2_Supporting	Homozygous (apparent) - biallelic P/LP [null (nonsense) / null (nonsense)]

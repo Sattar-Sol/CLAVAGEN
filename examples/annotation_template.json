@@ -1,0 +1,73 @@
+{
+  "_comment": "Template annotation. Coordinates 1-based inclusive. Delete keys you don't need. Use 'references' to give per-reference settings.",
+  "gene": "GENE",
+  "transcript": "NM_XXXXXX.X",
+  "protein_id": "NP_XXXXXX.X",
+  "chrom": "chrN",
+  "genomic_offset": 0,
+  "cds": [
+    1,
+    999
+  ],
+  "exons": [],
+  "exon_boundaries_c": [],
+  "inheritance": "AD | AR | XLR | XLD",
+  "lof_mechanism": true,
+  "missense_constrained": false,
+  "truncating_only": false,
+  "domains": [
+    {
+      "name": "Kinase",
+      "start": 100,
+      "end": 350,
+      "critical": true
+    }
+  ],
+  "hotspots": [],
+  "known_variants": [
+    {
+      "hgvs_c": "c.100C>T",
+      "hgvs_p": "p.Arg34Trp",
+      "classification": "Pathogenic",
+      "source": "ClinVar VCV..."
+    }
+  ],
+  "population_dataset": "gnomAD v4.1",
+  "population": {
+    "c.100C>T": {
+      "af": 1e-05,
+      "source": "gnomAD v4.1 exomes+genomes"
+    }
+  },
+  "insilico": {
+    "c.100C>T": {
+      "REVEL": 0.81,
+      "SpliceAI": 0.02
+    }
+  },
+  "ba1_exceptions": [],
+  "thresholds": {
+    "ba1": 0.05,
+    "bs1": 0.001,
+    "pm2": 1e-05
+  },
+  "diseases": [
+    {
+      "name": "Disease",
+      "mim": "",
+      "inheritance": "AD",
+      "summary": "",
+      "features": []
+    }
+  ],
+  "phenotype_keywords": [],
+  "management": [],
+  "references": {
+    "REFERENCE_FASTA_ID": {
+      "cds": [
+        51,
+        1049
+      ]
+    }
+  }
+}

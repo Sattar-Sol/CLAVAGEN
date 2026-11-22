@@ -1,0 +1,34 @@
+{
+  "software": "CLAVAGEN",
+  "version": "1.0.0",
+  "name": "20261121_170102_3_patients",
+  "date": "2026-11-21T17:01:03",
+  "online": false,
+  "patients": [
+    {
+      "id": "P-001",
+      "folder": "P-001",
+      "ok": true,
+      "family": "",
+      "relationship": "",
+      "affected": "unknown"
+    },
+    {
+      "id": "P-002",
+      "folder": "P-002",
+      "ok": true,
+      "family": "",
+      "relationship": "",
+      "affected": "unknown"
+    },
+    {
+      "id": "P-003",
+      "folder": "P-003",
+      "ok": true,
+      "family": "",
+      "relationship": "",
+      "affected": "unknown"
+    }
+  ],
+  "families": []
+}
