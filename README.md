@@ -104,4 +104,4 @@ If you use CLAVAGEN, please cite it as described in [`CITATION.cff`](CITATION.cf
 
 ## License
 
-[MIT](LICENSE). CLAVAGEN was formerly called **ACMG-VarCall** (versions V1–V12).
+[MIT](LICENSE).
