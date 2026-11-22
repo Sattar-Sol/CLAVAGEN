@@ -3,13 +3,18 @@ message: "If you use CLAVAGEN, please cite it as below."
 title: "CLAVAGEN: ACMG/AMP variant classification for patients and families, from DNA, protein or Sanger sequences"
 version: 1.0.0
 date-released: 2026-11-22
+doi: 10.5281/zenodo.24446017
 license: MIT
-repository-code: "https://github.com/Sattar-Sol/clavagen"
+repository-code: "https://github.com/Sattar-Sol/CLAVAGEN"
 authors:
   - family-names: "Soltani"
     given-names: "Sattar"
     affiliation: "Department of Biological Sciences, University of Alberta, Edmonton, AB, Canada"
     orcid: "https://orcid.org/0009-0006-1621-5235"
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.24446017
+    description: "Zenodo archive of CLAVAGEN v1.0.0"
 keywords:
   - ACMG/AMP
   - variant classification
