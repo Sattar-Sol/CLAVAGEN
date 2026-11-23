@@ -144,9 +144,22 @@ class Pipeline:
             if hg:
                 ctx = context_for_reference(self.ann, r.id, hg, auto=auto, manual_known=self.manual_known)
         if self.exclude_known:  # leave-one-out (benchmarking)
-            from .annotation import normalize_hgvs
-            ctx["known_variants"] = [k for k in ctx.get("known_variants", [])
-                                     if normalize_hgvs(k.get("hgvs_c", "")) not in self.exclude_known]
+            from .annotation import gene_info, normalize_hgvs, user_context
+            from .online import recalc_gene_evidence
+            # drop the tested variant's own record(s): by DNA change, and records that give only the protein
+            # change (they could otherwise match the variant as "same amino-acid change", i.e. PS1 for itself)
+            ctx["known_variants"] = [
+                k for k in ctx.get("known_variants", [])
+                if normalize_hgvs(k.get("hgvs_c", "")) not in self.exclude_known
+                and not (not k.get("hgvs_c") and normalize_hgvs(k.get("hgvs_p", "")) in self.exclude_known)]
+            # gene-level evidence derived from ClinVar (hotspots, LOF mechanism) is recounted without the
+            # tested variant; values from the built-in gene list or the user's annotation are kept
+            fixed_hs, fixed_lof = set(), None
+            for src in (gene_info(ctx.get("gene")) if ctx.get("gene") else {}, user_context(self.ann, r.id)):
+                fixed_hs |= set((src or {}).get("hotspots") or [])
+                if (src or {}).get("lof_mechanism") is not None:
+                    fixed_lof = src["lof_mechanism"]
+            recalc_gene_evidence(ctx, fixed_hs, fixed_lof)
         # CDS/exon structure from RefSeq if the user did not define it
         gb = getattr(r, "genbank", None) or (auto or {}).get("_refseq")
         if gb and gb.get("cds") and not ctx.get("cds") and not self.cds and r.mol_type == "dna":

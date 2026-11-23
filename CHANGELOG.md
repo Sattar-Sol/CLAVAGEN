@@ -1,5 +1,28 @@
 # Changelog
 
+## CLAVAGEN 1.0.1 (2026-11-23) - benchmark improvements
+- **Fixed: indirect information leakage in the benchmark.** The leave-one-out step removed the tested variant's own ClinVar record, but hotspots and the loss-of-function mechanism are derived from ClinVar before that step:
+  - a residue is a hotspot with ≥2 distinct P/LP missense variants;
+  - a gene is treated as loss-of-function with ≥3 P/LP truncating variants.
+
+  The tested variant could therefore count towards its own PM1 or PVS1 evidence. Both are now recounted without it. Values from the built-in gene list, the user's annotation file or gnomAD constraint (LOEUF) are kept. The benchmark report says which hotspots or LOF calls were removed.
+- **Fixed: protein-only records of the tested variant.** A ClinVar record that gives only the protein change was not removed by the DNA-based exclusion, and could match the variant as "same amino-acid change" (PS1 from its own record). The benchmark now also excludes records with the same protein change and no DNA description.
+- **Checked end to end:** tests run the full analysis with and without leave-one-out, and fail if either leak returns. No other criterion uses ClinVar counts: PP2 comes from gnomAD constraint and BP1 from the annotation.
+- **New: why classifications differ.** Each disagreement with the expert panel is given one main cause:
+  - *missing evidence:* the experts used data a sequence-based tool cannot have;
+  - *criterion assignment:* a computable criterion applied by only one side;
+  - *evidence strength:* same criterion, different strength.
+
+  The expert classification is also recalculated from computable criteria only (PVS1, PS1, PM1, PM2, PM4, PM5, PP2, PP3, BA1, BS1, BP1, BP3, BP4, BP7). Agreement with it measures genuine tool errors. New columns in `benchmark_results.tsv` and a new section in the report.
+- Evidence strengths from the Evidence Repository (e.g. `PM2_Supporting`, `PVS1_Strong`) are now kept, not reduced to the base code.
+- Remaining indirect sources, noted as limitations: prediction tools trained on known disease variants (e.g. REVEL), and ClinVar entries added after the expert curation.
+- **Fixed: CLAVAGEN opening in Chrome instead of its own window.** On first start the launcher installed the window component (pywebview) in the same step as the optional Biopython, so a Biopython failure (e.g. on a very new Python) also blocked the window component. The launcher also never tried again. Now:
+  - the window component is installed on its own;
+  - if it is missing, the launcher retries automatically, at most once a day, so starts stay fast without internet;
+  - this applies to macOS, Windows and Linux.
+- macOS start files call the shared launcher through `bash`, so they work even if the executable permission was lost (e.g. after uploading files through the GitHub website).
+- 50 automated tests.
+
 ## CLAVAGEN 1.0.0 (2026-11-21) - first public release
 The project is renamed **CLAVAGEN** (CLassification, Alignment, VAriant calling, GENotype & GENealogy).
 It was formerly **ACMG-VarCall**; this release is functionally ACMG-VarCall V12.

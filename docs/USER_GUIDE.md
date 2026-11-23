@@ -89,6 +89,7 @@ python3 -m clavagen benchmark --erepo erepo.tsv --max 300 --genes BRCA1,MYH7,PAH
 - Variants come from the ClinGen Evidence Repository (expert-panel classifications); each needs an exonic `NM_` c. description.
 - For each one, a patient sequence carrying the variant is built from the RefSeq transcript (±150 nt) and analysed exactly like user input.
 - The **ClinVar-based reported class is switched off**, and the variant's own known-variant record is removed ("leave-one-out"), so the benchmark measures the automated ACMG engine only.
+- **Gene-level evidence is recounted without the tested variant.** Hotspots (residues with ≥2 P/LP missense in ClinVar) and the loss-of-function mechanism (≥3 P/LP truncating variants) are derived from ClinVar, so the tested variant could otherwise count towards its own PM1 or PVS1. Values from the built-in gene list, your annotation file or gnomAD constraint are kept.
 
 **Outputs:**
 - `benchmark_report.html`, which reports:
@@ -96,8 +97,13 @@ python3 -m clavagen benchmark --erepo erepo.tsv --max 300 --genes BRCA1,MYH7,PAH
   - **critical discordance** (P/LP vs B/LB);
   - a confusion matrix;
   - per-criterion TP/FP/FN, precision and recall against the experts' applied criteria;
-  - agreement by gene.
-- `benchmark_results.tsv`, with one row per variant.
+  - agreement by gene;
+  - **why each classification differs**, with every discordant variant given one main cause:
+    - *missing evidence:* the expert classification, recalculated from only the criteria a sequence-based tool can compute, equals the tool's class. The experts used functional, case, segregation or phenotype data.
+    - *criterion assignment:* the tool applied a computable criterion the experts did not, or missed one they applied.
+    - *evidence strength:* same computable criteria, different strength (e.g. PVS1_Strong vs PVS1).
+  - agreement with the **expert class recalculated from computable criteria only**, which measures errors of the tool rather than missing information.
+- `benchmark_results.tsv`, with one row per variant, including the recalculated expert class, the cause of any disagreement, and the criteria applied only by the tool, only by the experts, or with a different strength.
 - `benchmark_summary.json`.
 
 **Run time:** each variant needs online look-ups. A 200-variant run takes roughly 15–30 min; Biopython, installed by the start files, keeps the alignment fast.

@@ -554,6 +554,7 @@ def derive_gene_evidence(ann):
     if "lof_mechanism" not in ann:
         if len(trunc) >= 3:
             ann["lof_mechanism"] = True
+            ann["_lof_derived"] = "clinvar"     # remembered so leave-one-out can recount without the target
             notes.append(f"LOF mechanism inferred: {len(trunc)} P/LP truncating/canonical-splice variants in ClinVar.")
         elif loeuf is not None and loeuf < 0.35:
             ann["lof_mechanism"] = True
@@ -566,9 +567,45 @@ def derive_gene_evidence(ann):
             pos[int(m.group(2))] += 1
     hs = sorted(p for p, n in pos.items() if n >= 2)
     if hs:
+        ann["_hotspots_derived"] = sorted(set(hs) - set(ann.get("hotspots", [])))
         ann["hotspots"] = sorted(set(ann.get("hotspots", [])) | set(hs))
         notes.append(f"{len(hs)} missense hotspot residue(s) (>=2 distinct P/LP missense in ClinVar).")
     return ann
+
+
+def recalc_gene_evidence(ctx, fixed_hotspots=(), fixed_lof=None):
+    """Leave-one-out (benchmarking): recount the ClinVar-derived gene-level evidence after the tested
+    variant has been removed from ctx['known_variants'].
+
+    Hotspots ('>=2 distinct P/LP missense at a residue') and the loss-of-function mechanism ('>=3 P/LP
+    truncating variants') are derived from ClinVar before the exclusion, so the tested variant could
+    count towards its own PM1/PVS1 evidence. Values from the built-in gene list or the user's annotation
+    (``fixed_hotspots``, ``fixed_lof``) are kept as they are.
+    """
+    before_hs = set(ctx.get("hotspots") or [])
+    before_lof = ctx.get("lof_mechanism")
+    prior_derived = set(ctx.get("_hotspots_derived") or [])
+    tmp = {"known_variants": ctx.get("known_variants") or [], "constraint": ctx.get("constraint") or {}}
+    if fixed_lof is not None:
+        tmp["lof_mechanism"] = fixed_lof
+    derive_gene_evidence(tmp)
+    keep = (before_hs - prior_derived) | set(fixed_hotspots or [])
+    # removing a variant can only take hotspots away, never add ones that were not in effect before
+    ctx["hotspots"] = sorted(keep | (set(tmp.get("_hotspots_derived") or []) & before_hs))
+    ctx["_hotspots_derived"] = tmp.get("_hotspots_derived") or []
+    if ctx.get("_lof_derived") == "clinvar" and fixed_lof is None:
+        ctx["lof_mechanism"] = tmp.get("lof_mechanism")
+        ctx["_lof_derived"] = tmp.get("_lof_derived")
+    notes = []
+    lost = sorted(before_hs - set(ctx["hotspots"]))
+    if lost:
+        notes.append(f"Leave-one-out: hotspot residue(s) {', '.join(map(str, lost))} no longer qualify without the "
+                     "tested variant.")
+    if bool(before_lof) and not ctx.get("lof_mechanism"):
+        notes.append("Leave-one-out: the loss-of-function mechanism is no longer supported without the tested variant.")
+    ctx.setdefault("_derived", [])
+    ctx["_derived"] = list(ctx["_derived"]) + notes
+    return notes
 
 
 def merge_annotation(base, auto, manual_known=None):

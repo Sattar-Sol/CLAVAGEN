@@ -1,10 +1,12 @@
 # CLAVAGEN
+
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24446017.svg)](https://doi.org/10.5281/zenodo.24446017)
+
 **CL**assification · **A**lignment · **VA**riant calling · **GEN**otype & **GEN**ealogy
 
 ACMG/AMP variant classification for patients and families, from DNA, protein or Sanger sequences.
 
-![Python](https://img.shields.io/badge/python-3.8%2B-blue) ![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey) ![License](https://img.shields.io/badge/license-MIT-green) ![Tests](https://img.shields.io/badge/tests-44%20passing-brightgreen)
+![Python](https://img.shields.io/badge/python-3.8%2B-blue) ![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey) ![License](https://img.shields.io/badge/license-MIT-green) ![Tests](https://img.shields.io/badge/tests-50%20passing-brightgreen)
 
 CLAVAGEN is a desktop application for individual patients and whole families:
 - **Input:** it reads DNA sequences, protein sequences and Sanger traces (`.ab1`) in common file formats, against one or several reference genes.
@@ -83,12 +85,13 @@ python3 -m clavagen benchmark --erepo erepo.tsv -o bench/                       
 ## Documentation
 
 - [User guide](docs/USER_GUIDE.md): every option of the window and the command line.
+- [Software description (PDF)](docs/CLAVAGEN_Software_Description.pdf): what CLAVAGEN does, for clinical and genetic users.
 - [Changelog](CHANGELOG.md): full history, including the earlier ACMG-VarCall versions.
 
 ## Tests
 
 ```bash
-python3 -m pytest -q tests      # 44 tests, with or without Biopython
+python3 -m pytest -q tests      # 50 tests, with or without Biopython
 ```
 
 ## Limitations

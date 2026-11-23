@@ -19,11 +19,22 @@ if errorlevel 1 goto nopython
 echo First start: setting up CLAVAGEN (one time only, about 1 minute)...
 %PY% -m venv .venv
 if errorlevel 1 goto noenv
-".venv\Scripts\python.exe" -m pip install --quiet --disable-pip-version-check pywebview certifi
-".venv\Scripts\python.exe" -m pip install --quiet --disable-pip-version-check biopython >nul 2>nul
+".venv\Scripts\python.exe" -m pip install --quiet --disable-pip-version-check certifi
+".venv\Scripts\python.exe" -m pip install --quiet --disable-pip-version-check pywebview
 if errorlevel 1 echo (Native window component could not be installed - an Edge app window will be used instead.)
+".venv\Scripts\python.exe" -m pip install --quiet --disable-pip-version-check biopython >nul 2>nul
+echo checked> ".venv\window_checked.txt"
 
 :launch
+REM window component missing (e.g. no internet at first start): try again, at most once a day
+".venv\Scripts\python.exe" -c "import webview" >nul 2>nul
+if not errorlevel 1 goto certs
+forfiles /p ".venv" /m window_checked.txt /d 0 >nul 2>nul
+if not errorlevel 1 goto certs
+echo Installing the CLAVAGEN window component...
+".venv\Scripts\python.exe" -m pip install --quiet --disable-pip-version-check --timeout 20 --retries 1 pywebview >nul 2>nul
+echo checked> ".venv\window_checked.txt"
+:certs
 REM make sure secure-connection certificates are available (needed for ClinVar/NCBI/UniProt/gnomAD/Ensembl)
 ".venv\Scripts\python.exe" -c "import certifi" >nul 2>nul || ".venv\Scripts\python.exe" -m pip install --quiet --disable-pip-version-check certifi >nul 2>nul
 start "" ".venv\Scripts\pythonw.exe" -m clavagen app

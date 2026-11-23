@@ -19,11 +19,25 @@ if [ ! -x .venv/bin/python ]; then
   fi
   note "First start: setting up CLAVAGEN (one time, about 1 minute)..."
   if "$PY" -m venv .venv >>"$LOG" 2>&1; then
-    .venv/bin/python -m pip install --quiet --disable-pip-version-check pywebview certifi biopython >>"$LOG" 2>&1 \
-      || note "Native window component not installed - a Chrome/Edge app window or Safari will be used."
+    # installed separately, so that a failing optional package (Biopython) cannot block the window component
+    .venv/bin/python -m pip install --quiet --disable-pip-version-check certifi >>"$LOG" 2>&1
+    .venv/bin/python -m pip install --quiet --disable-pip-version-check pywebview >>"$LOG" 2>&1 \
+      || note "Native window component not installed - a Chrome/Edge app window will be used (details: $LOG)."
+    .venv/bin/python -m pip install --quiet --disable-pip-version-check biopython >>"$LOG" 2>&1 \
+      || echo "Biopython not installed (optional - the built-in aligner is used)." >>"$LOG"
+    touch .venv/.window_checked
   else
     note "Could not create local environment - using system Python."
     exec "$PY" -m clavagen app >>"$LOG" 2>&1
+  fi
+fi
+# native window component missing (e.g. no internet at first start): try again, at most once a day
+if ! .venv/bin/python -c "import webview" >/dev/null 2>&1; then
+  if [ ! -f .venv/.window_checked ] || [ -n "$(find .venv/.window_checked -mtime +0 2>/dev/null)" ]; then
+    note "Installing the CLAVAGEN window component..."
+    .venv/bin/python -m pip install --quiet --disable-pip-version-check --timeout 20 --retries 1 pywebview >>"$LOG" 2>&1 \
+      || echo "pywebview install failed - Chrome/Edge app window will be used." >>"$LOG"
+    touch .venv/.window_checked
   fi
 fi
 # secure-connection certificates (python.org macOS builds ship without them)

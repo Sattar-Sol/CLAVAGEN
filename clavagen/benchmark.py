@@ -74,6 +74,66 @@ def parse_codes(s):
     return out
 
 
+_STRENGTH = {"supporting": "Supporting", "moderate": "Moderate", "strong": "Strong", "verystrong": "VeryStrong",
+             "standalone": "StandAlone"}
+
+# Criteria a sequence-based tool can assess from the variant and public databases alone. The others need
+# literature, functional, case, segregation or phenotype data (PS2-PS4, PM3, PM6, PP1, PP4, BS2-BS4, BP2, BP5).
+COMPUTABLE = {"PVS1", "PS1", "PM1", "PM2", "PM4", "PM5", "PP2", "PP3", "BA1", "BS1", "BP1", "BP3", "BP4", "BP7"}
+
+
+def parse_criteria(s):
+    """'PS3_Moderate, PM2_Supporting; PP1' -> {'PS3': 'Moderate', 'PM2': 'Supporting', 'PP1': 'Supporting'}.
+    A code without a strength gets its default ACMG/AMP strength."""
+    from .acmg import CRITERIA
+    out = {}
+    for m in re.finditer(r"(PVS1|PS[1-4]|PM[1-6]|PP[1-5]|BA1|BS[1-4]|BP[1-7])(?:[_ ]+(very[ _-]?strong|stand[ _-]?alone|"
+                         r"strong|moderate|supporting))?", (s or "").upper(), re.I):
+        code = m.group(1)
+        st = m.group(2)
+        st = _STRENGTH.get(re.sub(r"[ _-]", "", st.lower())) if st else None
+        out[code] = st or CRITERIA.get(code, ("", "Supporting", ""))[1]
+    return out
+
+
+def combine_codes(criteria):
+    """ACMG/AMP class from a {code: strength} dict, using the same combining rules as CLAVAGEN."""
+    from .acmg import Criterion, combine
+    return combine([Criterion(c, "met", st, "") for c, st in criteria.items()])["classification"]
+
+
+def analyse_disagreement(row):
+    """Why does CLAVAGEN disagree with the expert panel? Adds to ``row``:
+
+    expert_computable_class - the expert classification recomputed from the computable criteria only
+    disagreement            - '' (agree), 'missing evidence', 'criterion assignment' or 'evidence strength'
+    extra_codes / missed_codes / strength_diffs / expert_noncomputable - the details
+    """
+    e = row.get("expert_criteria") or {c: None for c in row.get("expert_codes", [])}
+    t = row.get("tool_criteria") or {}
+    e_comp = {c: st for c, st in e.items() if c in COMPUTABLE}
+    t_comp = {c: st for c, st in t.items() if c in COMPUTABLE}
+    row["expert_noncomputable"] = sorted(c for c in e if c not in COMPUTABLE)
+    row["extra_codes"] = sorted(set(t_comp) - set(e_comp))
+    row["missed_codes"] = sorted(set(e_comp) - set(t_comp))
+    row["strength_diffs"] = sorted(f"{c}: tool {t_comp[c]} / expert {e_comp[c]}" for c in set(t_comp) & set(e_comp)
+                                   if e_comp[c] and t_comp[c] and e_comp[c] != t_comp[c])
+    row["expert_computable_class"] = combine_codes({c: st or "Supporting" for c, st in e_comp.items()})
+    if row.get("tool_class") == row["expert_class"]:
+        row["disagreement"] = ""
+    elif row.get("tool_class") == row["expert_computable_class"]:
+        # with the same kind of evidence the experts reach the tool's class: the gap is evidence a
+        # sequence-based tool cannot have (functional, case, segregation, phenotype data)
+        row["disagreement"] = "missing evidence"
+    elif row["extra_codes"] or row["missed_codes"]:
+        row["disagreement"] = "criterion assignment"
+    elif row["strength_diffs"]:
+        row["disagreement"] = "evidence strength"
+    else:
+        row["disagreement"] = "missing evidence"
+    return row
+
+
 def load_erepo(text):
     """Parse the Evidence Repository tabbed export into a list of usable records."""
     rows = list(csv.DictReader(io.StringIO(text.lstrip("﻿")), delimiter="\t"))
@@ -113,6 +173,7 @@ def load_erepo(text):
             gene = m.group(1) if m else ""
         out.append({"title": (r.get(c_title) or "").strip(), "transcript": tx, "hgvs_c": c, "gene": gene,
                     "expert_class": cls, "expert_codes": sorted(parse_codes(r.get(c_met, "") if c_met else "")),
+                    "expert_criteria": parse_criteria(r.get(c_met, "") if c_met else ""),
                     "moi": (r.get(c_moi) or "").strip() if c_moi else "",
                     "panel": (r.get(c_panel) or "").strip() if c_panel else ""})
     stats["used"] = len(out)
@@ -217,7 +278,9 @@ def run_benchmark(records, out_dir, flank=150, max_n=None, seed=7, genes=None, l
                     fh.write(f">{tx} ({gb.get('gene') or r['gene']}) RefSeq\n{gb['seq']}\n")
             pl = Pipeline([f"bench{k}={query}"], [ref_path], gene=gb.get("gene") or r["gene"], online=online,
                           use_clinvar=False, auto_cache=auto_cache, log=lambda *_: None,
-                          exclude_known={normalize_hgvs(r["hgvs_c"])})
+                          exclude_known={normalize_hgvs(r["hgvs_c"])} | (
+                              {normalize_hgvs(m.group(1))} if (m := re.search(r"\((p\.[^)]*)\)\s*$", r.get("title", "")))
+                              else set()))
             res = pl.run()
             vs = res["samples"][0]["variants"]
             target = [v for v in vs if normalize_hgvs(v.get("hgvs_c", "")) == normalize_hgvs(r["hgvs_c"])]
@@ -228,7 +291,8 @@ def run_benchmark(records, out_dir, flank=150, max_n=None, seed=7, genes=None, l
                 v = target[0]
                 row.update(tool_class=v["classification"], tool_acmg=v.get("acmg_classification", v["classification"]),
                            tool_codes=sorted({c.split("_")[0] for c in v["criteria_met"]}), status="ok",
-                           points=v.get("points"))
+                           tool_criteria=parse_criteria(" ".join(v["criteria_met"])), points=v.get("points"))
+                analyse_disagreement(row)
                 if len(vs) > 1:
                     row["note"] = f"{len(vs) - 1} additional call(s) in the window"
         except Exception as e:
@@ -269,6 +333,17 @@ def summarise(results):
     for c, d in codes.items():
         d["precision"] = round(d["tp"] / (d["tp"] + d["fp"]), 3) if d["tp"] + d["fp"] else None
         d["recall"] = round(d["tp"] / (d["tp"] + d["fn"]), 3) if d["tp"] + d["fn"] else None
+    kinds = ("missing evidence", "criterion assignment", "evidence strength")
+    disc = [r for r in ok if r["tool_class"] != r["expert_class"]]
+    for r in disc:
+        if "disagreement" not in r:
+            analyse_disagreement(r)
+    disagreement = {k: sum(1 for r in disc if r.get("disagreement") == k) for k in kinds}
+    for r in ok:
+        if "expert_computable_class" not in r:
+            analyse_disagreement(r)
+    comp_exact = sum(1 for r in ok if r["tool_class"] == r["expert_computable_class"])
+    comp_t3 = sum(1 for r in ok if tier(r["tool_class"]) == tier(r["expert_computable_class"]))
     genes = {}
     for r in ok:
         g = genes.setdefault(r["gene"], {"n": 0, "agree3": 0})
@@ -281,19 +356,28 @@ def summarise(results):
             "exact_agreement": round(exact / n, 3) if n else None,
             "three_tier_agreement": round(t3 / n, 3) if n else None,
             "critical_discordance": round(crit / n, 3) if n else None, "critical_n": crit,
-            "tier_agreement": sens, "confusion": conf, "criteria": dict(sorted(codes.items())), "genes": genes}
+            "tier_agreement": sens, "confusion": conf, "criteria": dict(sorted(codes.items())), "genes": genes,
+            "discordant": len(disc), "disagreement": disagreement,
+            "computable_exact_agreement": round(comp_exact / n, 3) if n else None,
+            "computable_three_tier_agreement": round(comp_t3 / n, 3) if n else None,
+            "computable_criteria": sorted(COMPUTABLE)}
 
 
 def write_outputs(results, summary, out_dir):
     with open(os.path.join(out_dir, "benchmark_results.tsv"), "w", newline="") as fh:
         w = csv.writer(fh, delimiter="\t")
         w.writerow(["gene", "transcript", "hgvs_c", "expert_class", "tool_class", "agree_5class", "agree_3tier",
-                    "expert_codes", "tool_codes", "points", "panel", "status", "note"])
+                    "expert_codes", "tool_codes", "points", "expert_computable_class", "disagreement",
+                    "tool_only_codes", "expert_only_codes", "strength_differences", "expert_noncomputable_codes",
+                    "panel", "status", "note"])
         for r in results:
             w.writerow([r["gene"], r["transcript"], r["hgvs_c"], r["expert_class"], r.get("tool_class", ""),
                         r.get("tool_class") == r["expert_class"] if r["status"] == "ok" else "",
                         tier(r.get("tool_class", "")) == tier(r["expert_class"]) if r["status"] == "ok" else "",
                         ",".join(r["expert_codes"]), ",".join(r.get("tool_codes", [])), r.get("points", ""),
+                        r.get("expert_computable_class", ""), r.get("disagreement", ""),
+                        ",".join(r.get("extra_codes", [])), ",".join(r.get("missed_codes", [])),
+                        "; ".join(r.get("strength_diffs", [])), ",".join(r.get("expert_noncomputable", [])),
                         r.get("panel", ""), r["status"], r.get("note", "")])
     with open(os.path.join(out_dir, "benchmark_summary.json"), "w") as fh:
         json.dump(summary, fh, indent=2)
@@ -307,6 +391,9 @@ def write_outputs(results, summary, out_dir):
         f"<td>{pct(d['recall'])}</td></tr>" for c, d in summary["criteria"].items())
     gene_rows = "".join(f"<tr><td>{escape(g)}</td><td>{d['n']}</td><td>{pct(d['agree3'] / d['n'] if d['n'] else None)}</td></tr>"
                         for g, d in sorted(summary["genes"].items(), key=lambda kv: -kv[1]["n"]))
+    nd = summary.get("discordant") or 0
+    dis_rows = "".join(f"<tr><td>{escape(k)}</td><td>{v}</td><td>{pct(v / nd if nd else None)}</td></tr>"
+                       for k, v in (summary.get("disagreement") or {}).items())
     tiers = "".join(f"<tr><td>{t}</td><td>{d['n']}</td><td>{pct(d['agree'] / d['n'] if d['n'] else None)}</td></tr>"
                     for t, d in summary["tier_agreement"].items())
     html = f"""<!DOCTYPE html><html><head><meta charset="utf-8"><title>CLAVAGEN benchmark</title>
@@ -316,11 +403,22 @@ table{{border-collapse:collapse;margin:8px 0 22px}}td,th{{border:1px solid #e5e7
 .kpi b{{display:block;font-size:24px;color:#13294b}}.muted{{color:#6b7280;font-size:13px}}</style></head><body>
 <h1>Benchmark against the ClinGen Evidence Repository</h1>
 <p class="muted">{escape(summary['software'])} | {escape(summary['date'])} | automated ACMG engine only (ClinVar-based reported class OFF,
-the variant's own ClinVar record excluded) | patient sequences built from RefSeq transcripts</p>
+the variant's own ClinVar record excluded, and ClinVar-derived hotspots / loss-of-function mechanism recounted without it) | patient sequences built from RefSeq transcripts</p>
 <div class="kpi"><div><b>{summary['analysed']}</b>variants analysed</div><div><b>{pct(summary['three_tier_agreement'])}</b>3-tier agreement
 (P/LP, VUS, B/LB)</div><div><b>{pct(summary['exact_agreement'])}</b>exact 5-class agreement</div>
 <div><b>{pct(summary['critical_discordance'])}</b>critical discordance (P/LP vs B/LB; n={summary['critical_n']})</div></div>
 <p class="muted">Attempted {summary['attempted']}; not recovered {summary['not_recovered']}; errors {summary['errors']}.</p>
+<h2>Why the classifications differ</h2>
+<p class="muted">Each of the {summary.get('discordant', 0)} discordant variants is assigned one main cause.
+<b>Missing evidence</b>: recomputing the expert classification from the computable criteria only gives the tool's class -
+the experts used evidence a sequence-based tool cannot have (functional, case, segregation or phenotype data).
+<b>Criterion assignment</b>: the tool applied a computable criterion the experts did not, or missed one they applied.
+<b>Evidence strength</b>: same computable criteria, different strength.</p>
+<table><tr><th>Cause</th><th>n</th><th>% of discordant</th></tr>{dis_rows}</table>
+<div class="kpi"><div><b>{pct(summary.get('computable_three_tier_agreement'))}</b>3-tier agreement with the expert class
+recomputed from computable criteria</div><div><b>{pct(summary.get('computable_exact_agreement'))}</b>exact 5-class agreement
+(computable criteria)</div></div>
+<p class="muted">Computable criteria: {escape(', '.join(summary.get('computable_criteria', [])))}.</p>
 <h2>Agreement by expert tier</h2><table><tr><th>Expert tier</th><th>n</th><th>Tool agrees</th></tr>{tiers}</table>
 <h2>Confusion matrix</h2><p class="muted">Rows: expert panel; columns: CLAVAGEN.</p>
 <table><tr><th></th>{''.join(f'<th>{escape(c)}</th>' for c in CLASSES)}</tr>{conf_rows}</table>
