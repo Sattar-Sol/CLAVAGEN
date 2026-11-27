@@ -93,7 +93,7 @@ python3 -m clavagen benchmark --erepo erepo.tsv -o bench/                       
 ## Tests
 
 ```bash
-python3 -m pytest -q tests      # 50 tests, with or without Biopython
+python3 -m pytest -q tests      # 91 tests, with or without Biopython
 ```
 
 ## Limitations
