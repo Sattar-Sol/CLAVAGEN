@@ -136,3 +136,89 @@ def test_offline_failure_is_graceful(monkeypatch):
     notes = " ".join(res["samples"][0]["qc"]["notes"])
     assert "network unreachable" in notes
     assert res["samples"][0]["variants"][0]["consequence"] == "stop_gained"
+
+
+# ---------------------------------------------------------------- 1.0.2: old transcript versions & strand
+def _gb(acc, seq, cds, exons):
+    return {"transcript": acc, "seq": seq, "cds": list(cds), "exon_boundaries_c": exons, "gene": "TEST"}
+
+
+def test_old_transcript_version_mapped_to_current(monkeypatch):
+    from clavagen import online
+    seq = "GGG" + "ATGAAACCCTTTGGGTAA" + "TTT"
+    recs = {"NM_000001": _gb("NM_000001.4", "AAAA" + seq, (8, 25), [6]),     # longer 5'UTR, same CDS
+            "NM_000001.3": _gb("NM_000001.3", seq, (4, 21), [6])}
+    monkeypatch.setattr(online, "fetch_refseq", lambda a: recs[a])
+    acc, note = online.current_transcript_version("NM_000001.3")
+    assert acc == "NM_000001.4" and "not the current RefSeq version" in note
+    # same version -> unchanged, no note
+    recs["NM_000001"] = recs["NM_000001.3"]
+    assert online.current_transcript_version("NM_000001.3") == ("NM_000001.3", None)
+
+
+def test_old_transcript_reference_base_change(monkeypatch):
+    """NM_000277.1 vs .3 (PAH): same CDS length, two reference bases differ, no exon annotation in .1."""
+    from clavagen import online
+    recs = {"NM_000002": _gb("NM_000002.2", "ATGAAACCCTAA", (1, 12), [6]),
+            "NM_000002.1": _gb("NM_000002.1", "ATGAAAGCCTAA", (1, 12), [])}
+    monkeypatch.setattr(online, "fetch_refseq", lambda a: recs[a])
+    m = online.transcript_mapping("NM_000002.1")
+    assert m["acc"] == "NM_000002.2" and m["diff"] == {7} and not m["exons_ok"]
+    assert online.mappable("c.4A>G", m) and online.mappable("c.2_3del", m)
+    assert not online.mappable("c.7G>T", m)          # reference base changed there
+    assert not online.mappable("c.6+1G>A", m)        # exon boundaries not comparable
+    assert not online.mappable("c.-5A>G", m)         # UTR numbering can shift
+
+
+def test_old_transcript_with_different_cds_length_not_mapped(monkeypatch):
+    from clavagen import online
+    recs = {"NM_000003": _gb("NM_000003.2", "ATGAAACCCGGGTAA", (1, 15), []),
+            "NM_000003.1": _gb("NM_000003.1", "ATGAAACCCTAA", (1, 12), [])}
+    monkeypatch.setattr(online, "fetch_refseq", lambda a: recs[a])
+    acc, note = online.current_transcript_version("NM_000003.1")
+    assert acc == "NM_000003.1" and "differs" in note
+
+
+def test_revel_added_from_ensembl_transcript(monkeypatch):
+    """VEP gives REVEL only on Ensembl transcripts: an HGVS lookup on RefSeq never has it."""
+    from clavagen import online
+    calls = []
+
+    def fake(url, data=None, **k):
+        if "/hgvs" in url:
+            return [{"input": h, "seq_region_name": "12", "start": 102843691, "allele_string": "T/C", "strand": -1,
+                     "transcript_consequences": [{"transcript_id": "NM_000277.3"}]} for h in data["hgvs_notations"]]
+        calls.append(data["variants"])
+        return [{"input": "12 102843691 . A G . . .", "transcript_consequences": [
+            {"transcript_id": "ENST00000307000", "revel": 0.5},
+            {"transcript_id": "ENST00000553106", "mane_select": "NM_000277.3", "revel": 0.817}]}]
+    monkeypatch.setattr(online, "http", fake)
+    res = online.vep_lookup(["NM_000277.3:c.1154T>C"], "NM_000277.3")
+    assert calls == [["12 102843691 . A G . . ."]]         # minus strand: T/C on the transcript = A/G genomic
+    assert res["NM_000277.3:c.1154T>C"]["REVEL"] == 0.817 and "_loc" not in res["NM_000277.3:c.1154T>C"]
+
+
+def test_vep_alt_allele_from_allele_string():
+    from clavagen.online import _vep_alt, parse_vep_record
+    rec = {"allele_string": "G/A", "colocated_variants": [
+        {"frequencies": {"A": {"gnomade": 0.03}, "T": {"gnomade": 0.9}}}]}
+    assert _vep_alt(rec) == "A"
+    assert parse_vep_record(rec, _vep_alt(rec))["af"] == 0.03
+    assert _vep_alt({"allele_string": "GA/-"}) is None
+
+
+def test_vep_batch_survives_one_bad_hgvs(monkeypatch):
+    from clavagen import online
+    def fake(chunk):
+        if any("BAD" in h for h in chunk):
+            raise online.OnlineError("rest.ensembl.org: HTTP 400")
+        return [{"input": h, "allele_string": "C/T",
+                 "colocated_variants": [{"frequencies": {"T": {"gnomadg": 0.2}}}]} for h in chunk]
+    monkeypatch.setattr(online, "_vep_post", fake)
+    res = online.vep_lookup(["NM_1.1:c.1C>T", "NM_1.1:c.BAD", "NM_1.1:c.3C>T"])
+    assert set(res) == {"NM_1.1:c.1C>T", "NM_1.1:c.3C>T"} and res["NM_1.1:c.1C>T"]["af"] == 0.2
+
+
+def test_delins_with_deleted_bases_matches():
+    from clavagen.annotation import normalize_hgvs
+    assert normalize_hgvs("c.470_471delGAinsAC") == normalize_hgvs("c.470_471delinsAC")

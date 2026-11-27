@@ -68,10 +68,24 @@ def normalise_patients(patients):
                     "indication": str(p.get("indication") or "").strip(),
                     "phenotypes": _split_list(p.get("phenotypes"), ","),
                     "evidence": _split_list(p.get("evidence"), ";"),
+                    "clinical_evidence": _clinical(p.get("clinical_evidence")),
                     "query": q, "traces": traces, "notes": str(p.get("notes") or "").strip()})
     if not out:
         raise ValueError("Add at least one patient.")
     return out
+
+
+def _clinical(x):
+    """Guided clinical evidence: a dict, a JSON string, or empty."""
+    if not x:
+        return {}
+    if isinstance(x, dict):
+        return x
+    try:
+        v = json.loads(x)
+        return v if isinstance(v, dict) else {}
+    except (TypeError, ValueError):
+        raise ValueError(f"clinical_evidence is not valid JSON: {str(x)[:80]}")
 
 
 def read_patient_table(path_or_text):
@@ -112,7 +126,8 @@ def read_patient_table(path_or_text):
                     r.get("relation") or "", "affected": r.get("affected", ""),
                     "parentage_confirmed": r.get("parentage_confirmed", ""),
                     "age": r.get("age", ""), "indication": r.get("indication", ""),
-                    "phenotypes": r.get("phenotypes", ""), "evidence": r.get("evidence", ""), "query": q})
+                    "phenotypes": r.get("phenotypes", ""), "evidence": r.get("evidence", ""),
+                    "clinical_evidence": r.get("clinical_evidence", ""), "query": q})
     return normalise_patients(pts)
 
 
@@ -176,7 +191,8 @@ def run_cohort(patients, reference, out_base, annotation=None, gene=None, cds=No
                       phenotypes=p["phenotypes"], strict=strict, patient=patient_meta, online=online,
                       known_variants=known, log=log, auto_cache=auto_cache, use_clinvar=use_clinvar,
                       clinvar_min_stars=clinvar_min_stars, family_evidence=family_ev,
-                      default_reference=p.get("reference") or None)
+                      default_reference=p.get("reference") or None,
+                      clinical_evidence=p.get("clinical_evidence") or None)
         pl.annotation_path = "shared_inputs/annotation.json" if annotation else None
         return pl.run()
 

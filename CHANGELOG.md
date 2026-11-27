@@ -1,5 +1,49 @@
 # Changelog
 
+## CLAVAGEN 1.0.2 (2026-11-27) - benchmark fixes, clinical evidence input and gene rule profiles
+### New: guided clinical evidence and gene rule profiles
+The full benchmark showed that most disagreements with ClinGen expert panels come from evidence a sequence cannot give (missing evidence) and from gene-specific panel rules (criterion assignment, evidence strength).
+- **Guided clinical evidence** (window: patient form; command line: `--clinical-evidence`; patient table: `clinical_evidence` column). Users describe what they observed - informative meioses, cases in trans, homozygous probands, a functional assay with its OddsPath, de novo occurrences, case-control data, affected probands, healthy carriers, phenotype specificity, lack of segregation, alternative cause - and CLAVAGEN converts it to PP1, PM3, PS3/BS3, PS2/PM6, PS4, BS2, BS4, BP2, BP5 and PP4 with the published ClinGen rules (SVI PM3 and de novo points, Brnich 2019 OddsPath, Jarvik & Browning / Kelly segregation). The calculation is shown in the report.
+- **Gene rule profiles** (window: section 3; command line: `--rules`): thresholds, criteria not used for the gene, fixed strengths, strength caps, start-loss PVS1 strength and segregation thresholds, copied from an expert panel specification. Every change is labelled with the profile's source.
+- `clavagen evidence-template` writes an example of both files.
+- Benchmark: a "with clinical evidence" simulation adds the experts' clinical criteria to CLAVAGEN's automated ones. On the full Evidence Repository (run 2), 3-tier agreement rises from 63.4% to 81.5% and Cohen's kappa from 0.44 to 0.70.
+- `clavagen benchmark-figures` now also recounts the summary, tables, methods text and report.
+
+### Fixes from the first benchmark pilot
+Found in the first benchmark pilot (PAH, MYH7, BRCA1, 48 variants).
+- **Fixed: no REVEL scores.** Ensembl VEP attaches REVEL only to Ensembl transcripts, so the lookup on the RefSeq transcript never returned one. PP3/BP4 for missense variants then fell back to the uncalibrated heuristic, which missed PP3 for many pathogenic missense variants and gave BP4 to others. Single-nucleotide changes are now looked up a second time by genomic position, and the REVEL score of the matching MANE Select transcript is used (calibrated PP3/BP4, Pejaver et al. 2022).
+- **Fixed: older transcript versions got no population or in-silico data.** VEP only resolves current RefSeq versions, so an HGVS on e.g. `NM_000257.3` or `NM_000277.2` returned nothing: common benign variants missed BA1/BS1 and rare variants missed PM2. When the coding sequence has the same length in the current version (so c. numbering is unchanged), variants are now looked up on the current version. Exceptions, which keep the old version:
+  - positions where the reference base changed between versions (e.g. 2 positions in PAH `NM_000277.1`);
+  - intronic variants when exon boundaries cannot be compared (old records often have no exon annotation);
+  - UTR variants (c.-/c.*), whose numbering can shift.
+
+  A note in the report says which version was used.
+- A single HGVS that VEP cannot read no longer drops the data of the other variants in the same request.
+- A variant VEP cannot resolve is no longer treated as "absent from gnomAD" (which would wrongly give PM2).
+- **Fixed (found in the full 11,702-variant benchmark):**
+  - **PVS1 missing for variants on non-MANE transcripts.** Only ClinVar records on the exact transcript were counted to decide whether loss of function is a disease mechanism, so null variants described on another transcript (e.g. HNF1A `NM_001306179.2`, GCK `NM_001354803.2`) got no PVS1. The truncating-variant count is now gene-level (any transcript); in leave-one-out benchmarking it is reduced by one.
+  - **BP4 on null variants.** A low SpliceAI score gave BP4 to 1,136 nonsense/frameshift variants (and to start/stop-loss, in-frame and UTR variants). SpliceAI-only BP4 now applies only to synonymous and non-canonical intronic variants (ClinGen SVI splicing recommendations).
+  - **Contradictory BP4 + PP3 on missense variants.** REVEL-based BP4 now needs SpliceAI <= 0.1; with SpliceAI >= 0.2 the variant gets PP3 (splicing) instead.
+  - **PP3 combined with PVS1** (130 variants): no longer counted twice for the same null effect.
+  - **BP3 too permissive:** a nucleotide repeat (e.g. TTT = Phe-Phe) counted as a "repetitive region". BP3 now needs a protein-level repeat (>=5 identical residues, or a di-/tri-peptide motif x3); otherwise PM4.
+  - **VEP version lag:** NCBI can be a version ahead of Ensembl VEP (e.g. NM_000249.5 vs .4); a failed lookup is retried on the other version.
+  - **UTR variants on older transcript versions** are now looked up on the current version when the UTR sequence next to the CDS is unchanged up to that position.
+  - **A failed lookup for one variant no longer counts as "absent from gnomAD"** when other variants in the same analysis were found.
+  - A heuristic BP4 is no longer added against a splicing PP3 (2 variants in run 2).
+  - Benchmark: variants whose expert HGVS cannot be placed on the RefSeq transcript record (promoter positions beyond its 5' end, a different reference base) are counted as "not testable", not as errors.
+  - **Benchmark:** a dropped internet connection marks the variant as an error (tried again by `--resume`) instead of classifying it without gnomAD data; indels written at a non-3' position (e.g. `c.904delT` for `c.907del`) are matched by their sequence; new `vep_resolved` column; the transcript version actually used is recorded per variant.
+- **Fixed:** `c.470_471delGAinsAC` and `c.470_471delinsAC` are now recognised as the same variant (one pilot variant was reported as "not recovered").
+- **Fixed:** the `clavagen example` command (worked HBB demo) stopped with an error since 1.0.0.
+- **Benchmark outputs for publication:**
+  - statistics with 95% confidence intervals (Wilson score) for every agreement measure, Cohen's kappa (3-tier) and linearly weighted kappa (5-class) with bootstrap intervals, P/LP and B/LB sensitivity and PPV, direction of disagreements, evidence coverage (gnomAD, REVEL), and breakdowns by expert panel, gene, variant type and expert tier (checked against statsmodels and scikit-learn);
+  - manuscript tables (`tables/*.csv`), a methods-and-results draft with the numbers filled in (`methods_and_results.md`), and draft figure legends;
+  - six figures in `figures/`, as 600 dpi PNG plus vector PDF and SVG, sized for journal columns with a colour-blind-safe palette (needs matplotlib; redraw any time with `clavagen benchmark-figures <folder>`);
+  - full per-variant records (`benchmark_results.jsonl`) and more TSV columns (protein change, variant type, criteria with strengths, REVEL, SpliceAI, transcript used, ClinVar and Allele Registry IDs, disease, inheritance, time per variant);
+  - run metadata for reproducibility: SHA-256 of the Evidence Repository file, its row filtering, Ensembl release, software and Python versions, command, start and end time;
+  - `--resume` continues an interrupted run without re-analysing finished variants; progress lines show the estimated time left.
+- Benchmark: new `population_af` column, and data-source notes (transcript version, VEP problems) in the `note` column.
+- 88 automated tests.
+
 ## CLAVAGEN 1.0.1 (2026-11-23) - benchmark improvements
 - **Fixed: indirect information leakage in the benchmark.** The leave-one-out step removed the tested variant's own ClinVar record, but hotspots and the loss-of-function mechanism are derived from ClinVar before that step:
   - a residue is a hotspot with ≥2 distinct P/LP missense variants;

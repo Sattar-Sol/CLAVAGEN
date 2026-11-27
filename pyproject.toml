@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "clavagen"
-version = "1.0.1"
+version = "1.0.2"
 description = "CLAVAGEN: ACMG/AMP variant classification for patients and families, from DNA, protein or Sanger sequences"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -13,6 +13,7 @@ dependencies = []
 
 [project.optional-dependencies]
 fast = ["biopython>=1.80"]
+figures = ["matplotlib>=3.5"]
 test = ["pytest"]
 
 [project.scripts]

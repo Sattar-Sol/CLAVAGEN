@@ -46,7 +46,7 @@ body{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;background:#f
 .card{background:#fff;border:1px solid #e3e7ee;border-radius:10px;padding:16px 20px;margin-bottom:16px}
 h2{font-size:15px;margin:0 0 10px}
 label{font-size:13px;font-weight:600;display:block;margin:10px 0 4px}.hint{font-weight:400;color:#6b7280;font-size:12px}
-textarea,input[type=text],select{width:100%;border:1px solid #cfd6e0;border-radius:6px;padding:7px 9px;font-size:13px;background:#fff}
+textarea,input[type=text],input[type=number],select{width:100%;border:1px solid #cfd6e0;border-radius:6px;padding:7px 9px;font-size:13px;background:#fff}
 textarea{font-family:Menlo,Consolas,monospace;min-height:120px}
 .row{display:grid;grid-template-columns:1fr 1fr;gap:16px}.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
 .btns{display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap}
@@ -138,6 +138,11 @@ li.risk{color:#b2182b}
 <label>Annotation JSON <span class="hint">gene, CDS/exons, inheritance, domains, known variants, population AF, REVEL/SpliceAI - see examples/annotation_template.json</span></label>
 <textarea id="annotation" style="min-height:80px" placeholder='{"gene": "HBB", "cds": [1, 444], ...}'></textarea>
 <input class="file" type="file" data-target="annotation" accept=".json">
+<label>Gene rule profile <span class="hint">(optional) gene-specific settings from an expert panel specification
+ (ClinGen CSpec Registry): thresholds, criteria not used, fixed strengths and caps. Get a template with <code>clavagen evidence-template</code>.
+ Copy the values from the published specification - do not guess them.</span></label>
+<textarea id="rules" style="min-height:60px" placeholder='{"MYH7": {"source": "ClinGen Cardiomyopathy VCEP v2 (URL)", "thresholds": {"ba1": 0.001}, "disabled": ["PP2"]}}'></textarea>
+<input class="file" type="file" data-target="rules" accept=".json">
 <div class="row3">
 <input type="hidden" id="gene"><input type="hidden" id="cds">
  <div><label>Mode</label><select id="strict"><option value="0">Standard (heuristics flagged)</option><option value="1">Strict (no heuristic evidence)</option></select></div>
@@ -148,7 +153,7 @@ li.risk{color:#b2182b}
   <button class="b secondary small" id="import-btn">Import patient list(s) (CSV/TSV)...</button>
   <input type="file" id="import-file" multiple accept=".csv,.tsv,.txt,.json" style="display:none">
   <button class="b secondary small" id="clear-patients">Remove all</button></div>
- <table class="ptable"><thead><tr><th>#</th><th>Patient ID</th><th>Family</th><th>Sex</th><th>Age</th><th>Indication / phenotypes</th><th>Sequence(s)</th><th>Reviewer evidence</th><th></th></tr></thead>
+ <table class="ptable"><thead><tr><th>#</th><th>Patient ID</th><th>Family</th><th>Sex</th><th>Age</th><th>Indication / phenotypes</th><th>Sequence(s)</th><th>Clinical / reviewer evidence</th><th></th></tr></thead>
  <tbody id="patient-rows"></tbody></table>
 </div>
 <div class="card"><h2>5. Save &amp; run</h2>
@@ -176,7 +181,37 @@ li.risk{color:#b2182b}
   <select id="m-reference"><option value="">Auto-detect (best-matching reference)</option></select>
   <label>Indication</label><input type="text" id="m-indication" placeholder="Reason for testing">
   <label>Phenotypes <span class="hint">comma-separated (used for PP4), e.g. microcytic anaemia, splenomegaly</span></label><input type="text" id="m-phenotypes">
-  <label>Reviewer evidence <span class="hint">semicolon-separated, e.g. c.20A&gt;T=PS3,PP1_Strong; p.Glu7Val=-PM2; *=PS2</span></label><input type="text" id="m-evidence">
+  <details class="famrow" id="m-ce-box"><summary class="famhead" style="cursor:pointer">Clinical evidence (guided) <span class="hint">- describe what you observed;
+   CLAVAGEN converts it to ACMG criteria and strengths with the ClinGen rules and shows the calculation in the report</span></summary>
+   <label>Applies to variant <span class="hint">(c. or p.; leave empty for all variants found in this patient)</span></label><input type="text" id="ce-key" placeholder="e.g. c.20A>T">
+   <div class="row3"><div><label>Informative meioses <span class="hint">(segregation, PP1)</span></label><input type="number" min="0" id="ce-meioses"></div>
+    <div><label>Families</label><input type="number" min="0" id="ce-families"></div>
+    <div><label>Healthy adults with the genotype <span class="hint">(BS2)</span></label><input type="number" min="0" id="ce-healthy"></div></div>
+   <div class="famhead" style="margin-top:8px">Recessive disease: seen in trans with (PM3)</div>
+   <div class="row3"><div><label>Pathogenic, phase confirmed</label><input type="number" min="0" id="ce-tp-c"></div>
+    <div><label>Pathogenic, phase unknown</label><input type="number" min="0" id="ce-tp-u"></div>
+    <div><label>Likely pathogenic, phase confirmed</label><input type="number" min="0" id="ce-tlp-c"></div></div>
+   <div class="row3"><div><label>Likely pathogenic, phase unknown</label><input type="number" min="0" id="ce-tlp-u"></div>
+    <div><label>Homozygous affected probands</label><input type="number" min="0" id="ce-hom"></div><div></div></div>
+   <div class="famhead" style="margin-top:8px">Functional assay (PS3 / BS3)</div>
+   <div class="row3"><div><label>Result</label><select id="ce-func"><option value="">none</option><option value="damaging">damaging / abnormal</option><option value="normal">normal / no effect</option></select></div>
+    <div><label>OddsPath <span class="hint">(if the assay is validated)</span></label><input type="number" step="any" min="0" id="ce-oddspath"></div>
+    <div><label>or strength</label><select id="ce-fstr"><option value="">-</option><option>Supporting</option><option>Moderate</option><option>Strong</option></select></div></div>
+   <div class="famhead" style="margin-top:8px">De novo (PS2 / PM6)</div>
+   <div class="row3"><div><label>Probands, confirmed de novo</label><input type="number" min="0" id="ce-dn-c"></div>
+    <div><label>Probands, assumed de novo</label><input type="number" min="0" id="ce-dn-a"></div>
+    <div><label>Phenotype</label><select id="ce-dn-ph"><option value="specific">highly specific for the gene</option><option value="consistent">consistent, not specific</option><option value="heterogeneous">consistent, high heterogeneity</option></select></div></div>
+   <div class="famhead" style="margin-top:8px">Case data (PS4)</div>
+   <div class="row3"><div><label>Unrelated affected probands</label><input type="number" min="0" id="ce-ap"></div>
+    <div><label>Strength per panel rules</label><select id="ce-apstr"><option>Supporting</option><option>Moderate</option><option>Strong</option></select></div>
+    <div><label>Case-control OR / CI lower</label><div style="display:flex;gap:4px"><input type="number" step="any" id="ce-or" placeholder="OR"><input type="number" step="any" id="ce-orlo" placeholder="CI low"></div></div></div>
+   <div style="margin-top:6px">
+    <label style="font-weight:400"><input type="checkbox" id="ce-pp4"> Phenotype highly specific for this gene (PP4)</label>
+    <label style="font-weight:400"><input type="checkbox" id="ce-bs4"> Does not segregate with disease (BS4)</label>
+    <label style="font-weight:400"><input type="checkbox" id="ce-bp2"> In trans with a pathogenic variant (dominant) or in cis with one (BP2)</label>
+    <label style="font-weight:400"><input type="checkbox" id="ce-bp5"> Alternative molecular cause found (BP5)</label></div>
+  </details>
+  <label>Reviewer evidence <span class="hint">(advanced: ACMG codes directly) semicolon-separated, e.g. c.20A&gt;T=PS3,PP1_Strong; p.Glu7Val=-PM2; *=PS2</span></label><input type="text" id="m-evidence">
   <label>Patient sequence(s) * <span class="hint">DNA or protein; FASTA or raw; several sequences allowed; IUPAC (R, Y, W...) = heterozygous; end a complete protein with *</span></label>
   <textarea id="m-query" style="min-height:130px" placeholder=">Patient_exon1&#10;ATGGTGCATCTGACTCCTG..."></textarea>
   <input class="file" type="file" id="m-file" multiple accept=".fa,.fasta,.fna,.faa,.txt,.seq,.fas,.ab1,.abi">
@@ -229,6 +264,7 @@ li.risk{color:#b2182b}
 <li><b>Reference genes</b>: add one reference per gene - FASTA file(s), an NM_ accession, or pasted sequence. Several genes can be analysed in one run; each patient is matched to the right gene automatically (or choose the gene in the patient pop-up). Set the gene symbol, inheritance (e.g. AD/AR for SOD1 p.Asp91Ala) and CDS per reference. <i>Save to library</i> keeps references for future sessions. Try <i>Load multi-gene example</i>.</li>
 <li><b>Automatic annotation</b> (on by default) finds the gene's known pathogenic variants (ClinVar), transcript structure (RefSeq), domains and diseases (UniProt), constraint (gnomAD) and, for each detected variant, gnomAD frequency, REVEL, SpliceAI and AlphaMissense (Ensembl VEP). Use <i>Preview online annotation</i> to check what was found.</li>
 <li>Add your own known pathogenic variants in the manual box (or load a .txt/.csv/.tsv file). An annotation JSON file can still override any value.</li>
+<li><b>Clinical evidence</b>: in the patient window, open <i>Clinical evidence (guided)</i> and enter what you observed (meioses, cases in trans, functional assay, de novo, case data...). CLAVAGEN converts it to ACMG criteria with the ClinGen rules. A <b>gene rule profile</b> (section 3) applies an expert panel's gene-specific settings.</li>
 <li><b>Patients</b>: click <i>+ Add patient</i> - a pop-up window asks for the patient's ID, sex, age, indication, phenotypes, reviewer evidence and sequence(s). Add as many patients as needed; use <i>Edit</i>, <i>Copy</i> or <i>Remove</i> in the list. <i>Import patient list</i> reads a CSV/TSV with columns <code>id, sex, age, indication, phenotypes, evidence, query</code> (query = sequence).</li>
 <li>Choose where results are saved with <i>Choose folder...</i> (remembered), then <b>Run analysis</b>.</li>
 <li><b>Results</b>: pick a patient in the <i>Patient</i> list to see their variant maps, full report, alignments, clinical summary and files. <i>Cohort overview</i> shows all patients together.</li>
@@ -264,7 +300,7 @@ function renderPatients(){
  $("pcount").textContent=patients.length?("- "+patients.length+" patient"+(patients.length>1?"s":"")):"";
  $("patient-rows").innerHTML=patients.length?patients.map((p,i)=>'<tr><td>'+(i+1)+'</td><td><b>'+esc(p.id)+'</b></td><td>'+(p.family?esc(p.family)+'<br><span class="hint">'+esc(p.relationship||'')+(p.affected&&p.affected!=="unknown"?', '+esc(p.affected):'')+'</span>':'')+'</td><td>'+esc(p.sex)+'</td><td>'+esc(p.age)+
   '</td><td>'+esc(p.indication)+(p.phenotypes?'<br><span class="hint">'+esc(p.phenotypes)+'</span>':'')+'</td><td class="hint">'+esc(seqInfo(p.query,p))+(p.reference?'<br>&rarr; '+esc((refs.find(r=>r.id===p.reference)||{gene:p.reference}).gene||p.reference):'')+
-  '</td><td class="hint">'+esc(p.evidence)+'</td><td style="white-space:nowrap"><button class="lnk" data-e="'+i+'">Edit</button> <button class="lnk" data-c="'+i+
+  '</td><td class="hint">'+esc(p.evidence)+(p.clinical_evidence?(p.evidence?'<br>':'')+esc(ceSummary(p.clinical_evidence)):'')+'</td><td style="white-space:nowrap"><button class="lnk" data-e="'+i+'">Edit</button> <button class="lnk" data-c="'+i+
   '">Copy</button> <button class="lnk red" data-d="'+i+'">Remove</button></td></tr>').join(''):
   '<tr><td colspan=9 class="empty" style="padding:26px">No patients yet - click <b>+ Add patient</b>.</td></tr>';
  document.querySelectorAll('[data-e]').forEach(b=>b.onclick=()=>openModal(+b.dataset.e));
@@ -278,17 +314,55 @@ const MF=["id","sex","age","family","relationship","affected","reference","indic
 function openModal(i){editIdx=i;const p=i>=0?patients[i]:{};
  $("m-title").textContent=i>=0?"Edit patient":"Add patient";$("m-err").textContent="";
  MF.forEach(k=>$("m-"+k).value=p[k]||(k==="affected"?"unknown":""));$("m-parentage").checked=!!p.parentage_confirmed;$("m-file").value="";
- mTraces=(p.traces||[]).slice();renderTraces();
+ mTraces=(p.traces||[]).slice();renderTraces();fillCE(p.clinical_evidence);
  $("m-reference").innerHTML='<option value="">Auto-detect (best-matching reference)</option>'+refs.map(r=>'<option value="'+esc(r.id)+'">'+esc((r.gene||'?')+' - '+r.id)+'</option>').join('');
  $("m-reference").value=p.reference||"";
  $("fam-list").innerHTML=[...new Set(patients.map(x=>x.family).filter(Boolean))].map(f=>'<option value="'+esc(f)+'">').join('');
  $("modal").classList.add("on");setTimeout(()=>$("m-id").focus(),50);}
 function closeModal(){$("modal").classList.remove("on");}
+const CEN=["meioses","families","healthy","tp-c","tp-u","tlp-c","tlp-u","hom","oddspath","dn-c","dn-a","ap","or","orlo"];
+function num(id){const v=$("ce-"+id).value;return v===""?null:+v;}
+function readCE(){const e={};
+ if(num("meioses")!==null)e.segregation={informative_meioses:num("meioses"),families:num("families")||undefined};
+ const tr=[];[["tp-c","Pathogenic","confirmed"],["tp-u","Pathogenic","unknown"],["tlp-c","Likely pathogenic","confirmed"],["tlp-u","Likely pathogenic","unknown"]]
+  .forEach(([id,pt,ph])=>{for(let k=0;k<(num(id)||0);k++)tr.push({partner:pt,phase:ph});});
+ if(tr.length)e.in_trans=tr; if(num("hom"))e.homozygous_probands=num("hom");
+ if($("ce-func").value){e.functional={result:$("ce-func").value};if(num("oddspath")!==null)e.functional.oddspath=num("oddspath");else if($("ce-fstr").value)e.functional.strength=$("ce-fstr").value;}
+ const dn=[];for(let k=0;k<(num("dn-c")||0);k++)dn.push({confirmed:true,phenotype:$("ce-dn-ph").value});
+ for(let k=0;k<(num("dn-a")||0);k++)dn.push({confirmed:false,phenotype:$("ce-dn-ph").value});if(dn.length)e.de_novo=dn;
+ if(num("ap"))e.affected_probands={count:num("ap"),strength:$("ce-apstr").value};
+ if(num("or")!==null)e.case_control={odds_ratio:num("or"),ci_lower:num("orlo")||0};
+ if(num("healthy"))e.healthy_adults={count:num("healthy")};
+ if($("ce-pp4").checked)e.phenotype_specific=true;if($("ce-bs4").checked)e.non_segregation=true;
+ if($("ce-bp2").checked)e.benign_phase=true;if($("ce-bp5").checked)e.alternative_cause=true;
+ if(!Object.keys(e).length)return null;const o={};o[$("ce-key").value.trim()||"*"]=e;return o;}
+function fillCE(ce){CEN.forEach(id=>$("ce-"+id).value="");["func","fstr"].forEach(id=>$("ce-"+id).value="");$("ce-apstr").value="Supporting";
+ ["pp4","bs4","bp2","bp5"].forEach(id=>$("ce-"+id).checked=false);$("ce-key").value="";$("ce-dn-ph").value="specific";
+ if(!ce||!Object.keys(ce).length){$("m-ce-box").open=false;return;}
+ const k=Object.keys(ce)[0],e=ce[k]||{};$("ce-key").value=k==="*"?"":k;$("m-ce-box").open=true;
+ if(e.segregation){$("ce-meioses").value=e.segregation.informative_meioses??"";$("ce-families").value=e.segregation.families??"";}
+ const cnt=(pt,ph)=>(e.in_trans||[]).filter(t=>t.partner===pt&&t.phase===ph).length||"";
+ $("ce-tp-c").value=cnt("Pathogenic","confirmed");$("ce-tp-u").value=cnt("Pathogenic","unknown");
+ $("ce-tlp-c").value=cnt("Likely pathogenic","confirmed");$("ce-tlp-u").value=cnt("Likely pathogenic","unknown");
+ $("ce-hom").value=e.homozygous_probands||"";
+ if(e.functional){$("ce-func").value=e.functional.result||"";$("ce-oddspath").value=e.functional.oddspath??"";$("ce-fstr").value=e.functional.strength||"";}
+ if(e.de_novo){$("ce-dn-c").value=e.de_novo.filter(d=>d.confirmed).length||"";$("ce-dn-a").value=e.de_novo.filter(d=>!d.confirmed).length||"";$("ce-dn-ph").value=(e.de_novo[0]||{}).phenotype||"specific";}
+ if(e.affected_probands){$("ce-ap").value=e.affected_probands.count;$("ce-apstr").value=e.affected_probands.strength||"Supporting";}
+ if(e.case_control){$("ce-or").value=e.case_control.odds_ratio;$("ce-orlo").value=e.case_control.ci_lower;}
+ if(e.healthy_adults)$("ce-healthy").value=e.healthy_adults.count;
+ $("ce-pp4").checked=!!e.phenotype_specific;$("ce-bs4").checked=!!e.non_segregation;$("ce-bp2").checked=!!e.benign_phase;$("ce-bp5").checked=!!e.alternative_cause;}
+function ceSummary(ce){if(!ce)return "";const e=Object.values(ce)[0]||{},k=Object.keys(ce)[0],L=[];
+ if(e.segregation)L.push(e.segregation.informative_meioses+" meioses");if(e.in_trans)L.push(e.in_trans.length+" in trans");
+ if(e.homozygous_probands)L.push(e.homozygous_probands+" hom");if(e.functional)L.push("assay "+e.functional.result);
+ if(e.de_novo)L.push(e.de_novo.length+" de novo");if(e.affected_probands)L.push(e.affected_probands.count+" probands");
+ if(e.case_control)L.push("OR "+e.case_control.odds_ratio);if(e.healthy_adults)L.push(e.healthy_adults.count+" healthy");
+ if(e.phenotype_specific)L.push("PP4");if(e.non_segregation)L.push("BS4");if(e.benign_phase)L.push("BP2");if(e.alternative_cause)L.push("BP5");
+ return (k==="*"?"":k+": ")+L.join(", ");}
 function modalSave(again){const p={};MF.forEach(k=>p[k]=$("m-"+k).value.trim());p.parentage_confirmed=$("m-parentage").checked;
  if(p.family&&!p.relationship){$("m-err").textContent="Please choose the relationship to the proband for family members.";return;}
  if(!p.id){$("m-err").textContent="Patient ID is required.";return;}
  if(patients.some((x,j)=>x.id===p.id&&j!==editIdx)){$("m-err").textContent="Patient ID '"+p.id+"' is already in the list.";return;}
- p.traces=mTraces.slice();
+ p.traces=mTraces.slice();p.clinical_evidence=readCE();
  if(!p.query&&!p.traces.length){$("m-err").textContent="Please paste or load the patient's sequence, or attach a Sanger trace (.ab1).";return;}
  if(editIdx>=0)patients[editIdx]=p;else patients.push(p);savePatients();renderPatients();
  if(again)openModal(-1);else closeModal();}
@@ -384,7 +458,7 @@ $("ref-save-lib").onclick=async()=>{if(!refs.length){$("ref-msg").textContent="N
 renderRefs();loadLibrary();
 
 /* ---------------- settings / annotation ---------------- */
-const fields=["annotation","strict","known"];
+const fields=["annotation","strict","known","rules"];
 $("clear").onclick=()=>{fields.forEach(k=>$(k).value=k==="strict"?"0":"");patients=[];savePatients();renderPatients();refs=[];saveRefs();renderRefs();};
 async function loadSettings(){const st=await (await fetch("/settings")).json();$("results_dir").value=st.results_dir;}
 loadSettings();
@@ -854,6 +928,17 @@ def run_payload(data, out_base):
         for rid, st in per.items():
             merged[rid] = dict(merged.get(rid) or {}, **st)   # settings in the reference list win
         ann["references"] = merged
+    if (data.get("rules") or "").strip():
+        import tempfile
+        from .cli import _apply_rules
+        try:
+            json.loads(data["rules"])
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Gene rule profile is not valid JSON: {e}")
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+            fh.write(data["rules"])
+        ann = _apply_rules(ann, fh.name)
+        os.unlink(fh.name)
     known = parse_known_variants_text(data.get("known", ""), default_source="Manual entry")
     summ = run_cohort(data.get("patients") or [], refs, out_base, annotation=ann or None,
                       gene=(data.get("gene") or "").strip() or None, cds=(data.get("cds") or "").strip() or None,

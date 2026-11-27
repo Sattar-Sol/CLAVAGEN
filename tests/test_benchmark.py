@@ -39,9 +39,11 @@ def test_run_benchmark(mocked, tmp_path):
     recs, _ = load_erepo(EREPO)
     s = run_benchmark(recs, str(tmp_path), log=lambda *_: None)
     assert s["analysed"] == 3 and s["errors"] == 0
-    rows = {l.split("\t")[2]: l.split("\t") for l in open(tmp_path / "benchmark_results.tsv").read().splitlines()[1:]}
-    assert rows["c.9T>C"][4] in ("Benign", "Likely benign")
-    assert rows["c.118C>T"][4] in ("Pathogenic", "Likely pathogenic")
+    import csv
+    rows = {r["hgvs_c"]: r for r in csv.DictReader(open(tmp_path / "benchmark_results.tsv"), delimiter="\t")}
+    assert rows["c.9T>C"]["tool_class"] in ("Benign", "Likely benign")
+    assert rows["c.118C>T"]["tool_class"] in ("Pathogenic", "Likely pathogenic")
+    assert rows["c.118C>T"]["variant_type"] == "nonsense" and rows["c.20A>T"]["variant_type"] == "missense"
     assert s["critical_discordance"] == 0
     assert "PVS1" in s["criteria"] and s["criteria"]["PVS1"]["tp"] == 1
     assert (tmp_path / "benchmark_report.html").exists()
@@ -176,3 +178,161 @@ def test_protein_only_record_not_used_as_own_ps1(monkeypatch, tmp_path):
 
     assert "PS1" in met({"c.199A>G"})                       # DNA-only exclusion misses the protein-only record
     assert "PS1" not in met({"c.199A>G", "p.Lys67Glu"})     # as the benchmark now does: record left out
+
+
+def test_old_transcript_version_still_gets_population_data(monkeypatch, tmp_path):
+    """ERepo rows on an older RefSeq version (e.g. NM_000257.3) used to get no gnomAD data, because
+    Ensembl VEP only resolves current versions: common benign variants then missed BA1."""
+    from test_online import _genbank
+    import urllib.parse
+
+    def fake(url, data=None, **k):
+        if "efetch.fcgi" in url:
+            acc = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["id"][0]
+            return _genbank().replace("NM_000518.5", "NM_000518.4") if acc == "NM_000518.4" else _genbank()
+        if "rest.ensembl.org/vep" in url and any("NM_000518.4" in h for h in data["hgvs_notations"]):
+            raise online.OnlineError("rest.ensembl.org: HTTP 400 (unknown transcript version)")
+        return fake_http(url, data, **k)
+    monkeypatch.setattr(online, "http", fake)
+    online._dead_hosts.clear()
+    old = EREPO.replace("NM_000518.5", "NM_000518.4")
+    recs, _ = load_erepo(old)
+    s = run_benchmark([r for r in recs if r["hgvs_c"] == "c.9T>C"], str(tmp_path), log=lambda *_: None)
+    assert s["analysed"] == 1 and s["exact_agreement"] == 1.0          # BA1 -> Benign, as the experts said
+    tsv = open(os.path.join(tmp_path, "benchmark_results.tsv")).read()
+    assert "not the current RefSeq version" in tsv and "0.25" in tsv
+
+
+# ---------------------------------------------------------------- publication outputs
+def test_publication_outputs_and_resume(mocked, tmp_path):
+    """Full run writes per-variant JSONL, statistics with CIs, manuscript tables and methods text;
+    an interrupted run resumes without re-analysing finished variants."""
+    import csv
+    recs, stats = load_erepo(EREPO)
+    meta = {"erepo_filter": stats, "erepo_file": "erepo.tsv", "erepo_sha256": "ab" * 32}
+    s = run_benchmark(recs, str(tmp_path), log=lambda *_: None, meta=meta, figures=False)
+    st = s["statistics"]
+    assert st["three_tier"]["n"] == 3 and len(st["three_tier"]["ci95"]) == 2
+    assert set(st["by_variant_type"]) >= {"missense", "nonsense"} and "Hemoglobinopathy VCEP" in st["by_panel"]
+    assert s["run"]["erepo_filter"]["used"] == 3 and s["run"]["selected"] == 3 and s["run"]["finished"]
+    for f in ("tables/table1_overall.csv", "tables/table2_by_panel.csv", "tables/table3_criteria.csv",
+              "tables/table4_disagreement.csv", "tables/confusion_matrix.csv", "methods_and_results.md"):
+        assert (tmp_path / f).exists(), f
+    t1 = list(csv.reader(open(tmp_path / "tables/table1_overall.csv")))
+    assert t1[1][0].startswith("3-tier") and "(" in t1[1][2]
+    assert "SHA-256 abababab" in open(tmp_path / "methods_and_results.md").read()
+    lines = open(tmp_path / "benchmark_results.jsonl").read().splitlines()
+    assert len(lines) == 3
+    # simulate an interruption after the first variant, then resume
+    open(tmp_path / "benchmark_results.jsonl", "w").write(lines[0] + "\n" + lines[1][:20])
+    seen = []
+    from clavagen import pipeline
+    orig = pipeline.Pipeline.run
+    monkey = pytest.MonkeyPatch()
+    monkey.setattr(pipeline.Pipeline, "run", lambda self: seen.append(1) or orig(self))
+    s2 = run_benchmark(recs, str(tmp_path), log=lambda *_: None, resume=True, figures=False)
+    monkey.undo()
+    assert len(seen) == 2 and s2["analysed"] == 3 and s2["run"]["resumed_from"] == 1
+
+
+def test_wilson_and_kappa():
+    from clavagen.benchmark_stats import kappa, wilson
+    p, lo, hi = wilson(81, 263)                     # reference values: 0.3080 (0.2553-0.3662)
+    assert (round(lo, 3), round(hi, 3)) == (0.255, 0.366)
+    assert wilson(0, 10)[1] == 0.0 and wilson(10, 10)[2] == 1.0
+    pairs = [("a", "a")] * 20 + [("a", "b")] * 5 + [("b", "a")] * 10 + [("b", "b")] * 15
+    assert round(kappa(pairs, ["a", "b"]), 3) == 0.4  # textbook example: po 0.70, pe 0.50
+    perfect = [("P", "P"), ("V", "V"), ("B", "B")] * 4
+    assert kappa(perfect, ["P", "V", "B"]) == 1.0
+    assert kappa(perfect, ["P", "V", "B"], weighted=True) == 1.0
+
+
+def test_figures_written(mocked, tmp_path):
+    pytest.importorskip("matplotlib")
+    recs, stats = load_erepo(EREPO)
+    run_benchmark(recs, str(tmp_path), log=lambda *_: None, meta={"erepo_filter": stats})
+    figs = sorted(p.name for p in (tmp_path / "figures").iterdir())
+    for name in ("Fig1_variant_selection", "Fig2_confusion_matrix", "Fig3_agreement", "Fig5_criteria"):
+        assert {f"{name}.png", f"{name}.pdf", f"{name}.svg"} <= set(figs), name
+    assert "figure_legends.md" in figs
+    from PIL import Image
+    im = Image.open(tmp_path / "figures" / "Fig2_confusion_matrix.png")
+    assert round(im.info["dpi"][0]) == 600
+
+
+def test_benchmark_without_matplotlib(mocked, tmp_path, monkeypatch):
+    """matplotlib is optional: results, tables and text are written, figures are skipped with a hint."""
+    import sys
+    monkeypatch.setitem(sys.modules, "matplotlib", None)
+    msgs = []
+    recs, _ = load_erepo(EREPO)
+    s = run_benchmark(recs, str(tmp_path), log=msgs.append)
+    assert s["analysed"] == 3 and (tmp_path / "tables" / "table1_overall.csv").exists()
+    assert not (tmp_path / "figures").exists() or not any((tmp_path / "figures").iterdir())
+    assert any("pip install matplotlib" in m for m in msgs)
+
+
+def test_vep_falls_back_to_original_version(monkeypatch, tmp_path):
+    """NCBI can be ahead of VEP (NM_000249.5 at NCBI, only .4 in VEP): retry the original version."""
+    from test_online import _genbank
+    import urllib.parse
+
+    def fake(url, data=None, **k):
+        if "efetch.fcgi" in url:
+            acc = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["id"][0]
+            return _genbank().replace("NM_000518.5", "NM_000518.6") if acc == "NM_000518" else _genbank()
+        if "rest.ensembl.org/vep" in url and any("NM_000518.6" in h for h in data.get("hgvs_notations", [])):
+            raise online.OnlineError("rest.ensembl.org: HTTP 400 (Could not get a Transcript object)")
+        return fake_http(url, data, **k)
+    monkeypatch.setattr(online, "http", fake)
+    online._dead_hosts.clear()
+    recs, _ = load_erepo(EREPO)
+    run_benchmark([r for r in recs if r["hgvs_c"] == "c.9T>C"], str(tmp_path), log=lambda *_: None, figures=False)
+    import csv
+    row = next(csv.DictReader(open(tmp_path / "benchmark_results.tsv"), delimiter="\t"))
+    assert row["vep_resolved"] == "True" and row["lookup_transcript"] == "NM_000518.5"
+    assert row["tool_class"] == "Benign"                    # BA1 from the AF found on .5
+
+
+def test_network_failure_is_retried_on_resume(monkeypatch, tmp_path):
+    state = {"down": True}
+
+    def fake(url, data=None, **k):
+        if state["down"] and "rest.ensembl.org/vep" in url:
+            raise online.OnlineError("rest.ensembl.org: no internet connection (server name could not be resolved)")
+        return fake_http(url, data, **k)
+    monkeypatch.setattr(online, "http", fake)
+    online._dead_hosts.clear()
+    recs, _ = load_erepo(EREPO)
+    s = run_benchmark(recs, str(tmp_path), log=lambda *_: None, figures=False)
+    assert s["errors"] == 3 and s["analysed"] == 0          # not silently classified without gnomAD
+    state["down"] = False
+    online._dead_hosts.clear()
+    s = run_benchmark(recs, str(tmp_path), log=lambda *_: None, figures=False, resume=True)
+    assert s["errors"] == 0 and s["analysed"] == 3
+
+
+def test_shifted_indel_is_recovered(mocked, tmp_path):
+    """ClinGen sometimes gives an indel at its 5' position (c.904delT); CLAVAGEN reports the 3'-shifted HGVS."""
+    from clavagen.benchmark import apply_c
+    from test_online import _genbank
+    from clavagen.online import parse_genbank
+    gb = parse_genbank(_genbank())
+    cds = gb["seq"][gb["cds"][0] - 1:gb["cds"][1]]
+    i = next(i for i in range(30, len(cds) - 2) if cds[i] == cds[i + 1] != cds[i - 1])   # a 2-base run
+    five, three = f"c.{i + 1}del", f"c.{i + 2}del"
+    assert apply_c(gb["seq"], gb["cds"], five)[0] == apply_c(gb["seq"], gb["cds"], three)[0]
+    row = "\t".join(["x", "1", "CA1", f"NM_000518.5:{five}", "HBB", "beta thalassemia", "", "AR", "Pathogenic",
+                     "PVS1, PM2_Supporting", "", "Hemoglobinopathy VCEP", "false"])
+    recs, _ = load_erepo(EREPO.split("\n")[0] + "\n" + row + "\n")
+    s = run_benchmark(recs, str(tmp_path), log=lambda *_: None, figures=False)
+    assert s["analysed"] == 1 and s["not_recovered"] == 0
+
+
+def test_not_testable_is_not_an_error():
+    from clavagen.benchmark import summarise
+    rows = [{"status": "error", "note": "c.-1170C>T outside transcript"},
+            {"status": "error", "note": "reference base mismatch for c.*2050T>A (transcript has A)"},
+            {"status": "error", "note": "network: no internet connection"}]
+    s = summarise(rows)
+    assert s["not_testable"] == 2 and s["errors"] == 1

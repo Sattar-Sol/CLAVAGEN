@@ -394,6 +394,9 @@ def parse_vep_record(rec, alt=None, transcript=None):
     if afs:
         out["af"] = max(afs.values())
         out["af_detail"] = afs
+    if rec.get("seq_region_name") and rec.get("start") is not None:
+        out["_loc"] = (str(rec["seq_region_name"]), int(rec["start"]), str(rec.get("allele_string", "")),
+                       int(rec.get("strand") or 1))
     tcs = rec.get("transcript_consequences", []) or []
     if transcript:
         base = transcript.split(".")[0]
@@ -426,22 +429,175 @@ def parse_vep_record(rec, alt=None, transcript=None):
     return out
 
 
+def _vep_post(chunk):
+    return http(VEP + "?" + _q({"refseq": 1, "REVEL": 1, "SpliceAI": 1, "AlphaMissense": 1,
+                                "content-type": "application/json"}),
+                data={"hgvs_notations": chunk}, timeout=60)
+
+
+_CODING_C = re.compile(r"^c\.\d+([+-]\d+)?(_\d+([+-]\d+)?)?[A-Za-z]")
+
+
+def transcript_mapping(accession):
+    """How to look up variants of an older RefSeq transcript version in Ensembl VEP.
+
+    VEP (and so gnomAD frequencies and in-silico scores) only knows current RefSeq versions; an HGVS
+    on e.g. NM_000257.3 is rejected. c. coordinates are counted from the CDS start, so coding
+    positions carry over unchanged when the coding sequence has the same length (no indel between
+    versions). Positions where the reference base changed are not carried over, and intronic
+    positions only when both versions have the same, annotated exon boundaries.
+    Returns {"acc", "note", "diff" (set of c. positions), "exons_ok"}.
+    """
+    out = {"acc": accession, "note": None, "diff": set(), "exons_ok": True, "utr5": 0, "utr3": 0}
+    if not accession or "." not in accession:
+        return out
+    try:
+        new = fetch_refseq(accession.split(".")[0])
+    except OnlineError as e:
+        out["note"] = f"could not check for a newer version of {accession} ({e})"
+        return out
+    cur = new.get("transcript")
+    if not cur or cur == accession:
+        return out
+    try:
+        old = fetch_refseq(accession)
+    except OnlineError as e:
+        out["note"] = f"could not compare {accession} with {cur} ({e})"
+        return out
+
+    def cds(r):
+        return r["seq"][r["cds"][0] - 1:r["cds"][1]] if r.get("cds") else ""
+    co, cn = cds(old), cds(new)
+    if not co or len(co) != len(cn):
+        out["note"] = (f"{accession} differs from the current version {cur} in its coding sequence length; "
+                       f"population and in-silico lookups may return nothing")
+        return out
+    out["diff"] = {i + 1 for i, (x, y) in enumerate(zip(co, cn)) if x != y}
+    eo, en = old.get("exon_boundaries_c"), new.get("exon_boundaries_c")
+    out["exons_ok"] = bool(eo) and eo == en
+    # UTR positions carry over as far as the UTR sequences are shared next to the CDS
+    u5o, u5n = old["seq"][:old["cds"][0] - 1], new["seq"][:new["cds"][0] - 1]
+    u3o, u3n = old["seq"][old["cds"][1]:], new["seq"][new["cds"][1]:]
+    n5 = 0
+    while n5 < min(len(u5o), len(u5n)) and u5o[-1 - n5] == u5n[-1 - n5]:
+        n5 += 1
+    n3 = 0
+    while n3 < min(len(u3o), len(u3n)) and u3o[n3] == u3n[n3]:
+        n3 += 1
+    out["utr5"], out["utr3"] = n5, n3
+    out["acc"] = cur
+    extra = ""
+    if out["diff"]:
+        extra += f"; {len(out['diff'])} reference base(s) differ (" + ", ".join(
+            f"c.{i}" for i in sorted(out["diff"])[:5]) + "), variants there keep the old version"
+    if not out["exons_ok"]:
+        extra += "; exon boundaries not comparable, so intronic variants keep the old version"
+    out["note"] = (f"{accession} is not the current RefSeq version; population and in-silico data were looked "
+                   f"up on {cur} (same coding sequence length, same c. numbering{extra})")
+    return out
+
+
+def current_transcript_version(accession, log=None):
+    """(accession_to_use, note) - see transcript_mapping()."""
+    m = transcript_mapping(accession)
+    return m["acc"], m["note"]
+
+
+def mappable(c, m):
+    """Can c. description c be looked up on the current version described by mapping m?"""
+    if m.get("acc") is None:
+        return False
+    body = c.split(">")[0].split("del")[0].split("ins")[0].split("dup")[0]
+    if re.search(r"\d[+-]\d", body) and not m.get("exons_ok"):
+        return False
+    pos = []
+    for tok in re.findall(r"[-*]?\d+", re.sub(r"(?<=\d)[+-]\d+", "", body[2:] if body.startswith("c.") else body)):
+        if tok.startswith("-"):                      # 5' UTR: shared length next to the CDS
+            if int(tok[1:]) > m.get("utr5", 0):
+                return False
+        elif tok.startswith("*"):                    # 3' UTR
+            if int(tok[1:]) > m.get("utr3", 0):
+                return False
+        else:
+            pos.append(int(tok))
+    if pos and any(p in m.get("diff", ()) for p in range(min(pos), max(pos) + 1)):
+        return False
+    return bool(re.match(r"^c\.[-*]?\d", c))
+
+
 def vep_lookup(hgvs_list, transcript=None):
     """hgvs_list: ['NM_000518.5:c.20A>T', ...] -> {hgvs: parsed dict}."""
     res = {}
     for i in range(0, len(hgvs_list), 50):
         chunk = hgvs_list[i:i + 50]
-        js = http(VEP + "?" + _q({"refseq": 1, "REVEL": 1, "SpliceAI": 1, "AlphaMissense": 1,
-                                  "content-type": "application/json"}),
-                  data={"hgvs_notations": chunk}, timeout=60)
+        try:
+            js = _vep_post(chunk)
+        except OnlineError:
+            if len(chunk) == 1:
+                raise
+            js = []
+            for h in chunk:  # retry one by one so a single unparsable HGVS does not drop the batch
+                try:
+                    js.extend(_vep_post([h]) or [])
+                except OnlineError:
+                    pass
         for rec in js or []:
-            inp = rec.get("input", "")
-            alt = None
-            m = re.search(r">([ACGT])$", inp)
-            if m:
-                alt = m.group(1)
-            res[inp] = parse_vep_record(rec, alt, transcript)
+            res[rec.get("input", "")] = parse_vep_record(rec, _vep_alt(rec), transcript)
+    try:
+        _add_revel(res, transcript)
+    except OnlineError:
+        pass  # REVEL is optional; PP3/BP4 then fall back as before
+    for r in res.values():
+        r.pop("_loc", None)
     return res
+
+
+_COMP = {"A": "T", "C": "G", "G": "C", "T": "A"}
+
+
+def _add_revel(res, transcript=None):
+    """REVEL for single-nucleotide changes that VEP returned without it.
+
+    VEP attaches REVEL only to Ensembl transcripts, so an HGVS lookup on a RefSeq transcript
+    (refseq=1) never carries a REVEL score. The same change is therefore looked up again by
+    genomic position on the Ensembl transcripts, preferring the MANE Select transcript that
+    corresponds to the RefSeq transcript."""
+    todo = {}
+    for h, r in res.items():
+        loc = r.get("_loc")
+        if "REVEL" in r or not loc:
+            continue
+        chrom, start, al, strand = loc
+        al = al.split("/")
+        if len(al) != 2 or len(al[0]) != 1 or len(al[1]) != 1 or not set(al) <= set(_COMP):
+            continue
+        ref, alt = (al if strand != -1 else [_COMP[a] for a in al])  # alleles are on the input strand
+        todo.setdefault(f"{chrom} {start} . {ref} {alt} . . .", []).append(h)
+    if not todo:
+        return
+    base = (transcript or "").split(".")[0]
+    keys = list(todo)
+    for i in range(0, len(keys), 50):
+        chunk = keys[i:i + 50]
+        js = http(VEP.replace("/hgvs", "/region") + "?" + _q({"REVEL": 1, "mane": 1,
+                                                               "content-type": "application/json"}),
+                  data={"variants": chunk}, timeout=60)
+        for rec in js or []:
+            k = rec.get("input", "")
+            tcs = [t for t in rec.get("transcript_consequences", []) or [] if t.get("revel") is not None]
+            if not tcs or k not in todo:
+                continue
+            mane = [t for t in tcs if str(t.get("mane_select", "")).split(".")[0] == base]
+            score = float((mane or tcs)[0]["revel"]) if mane else max(float(t["revel"]) for t in tcs)
+            for h in todo[k]:
+                res[h]["REVEL"] = score
+
+
+def _vep_alt(rec):
+    """Alt allele of a single-base change from VEP's allele_string (input orientation, which is
+    also how VEP keys the colocated gnomAD frequencies)."""
+    al = str(rec.get("allele_string", "")).split("/")
+    return al[1] if len(al) == 2 and len(al[1]) == 1 and al[1] in "ACGT" else None
 
 
 # ------------------------------------------------------------------ build
@@ -503,6 +659,9 @@ def auto_annotation(gene, transcript=None, log=None, sources=("clinvar", "refseq
         known_tx = [k for k in known if not k.get("transcript") or k["transcript"].split(".")[0] == transcript.split(".")[0]]
         if known:
             ann["known_variants"] = known_tx
+            # gene-level facts (is loss of function a disease mechanism?) do not depend on which transcript the
+            # variants were described on; residue-level ones (hotspots, PS1/PM5) do
+            ann["_gene_truncating_all"] = sum(1 for k in known if _is_truncating(k))
     if "refseq" in sources and transcript:
         try:
             gb = fetch_refseq(transcript)
@@ -544,18 +703,27 @@ def auto_annotation(gene, transcript=None, log=None, sources=("clinvar", "refseq
     return ann
 
 
-def derive_gene_evidence(ann):
-    """Derive LOF mechanism and hotspots from the known P/LP variants and constraint."""
+def _is_truncating(k):
+    return bool(re.search(r"(Ter|\*|fs)", k.get("hgvs_p", "")) or re.search(r"c\.\d+[+-][12][ACGT]>", k.get("hgvs_c", "")))
+
+
+def derive_gene_evidence(ann, leave_one_out=False):
+    """Derive LOF mechanism and hotspots from the known P/LP variants and constraint.
+
+    The LOF count uses the gene's ClinVar P/LP variants on any transcript (``_gene_truncating_all``); with
+    ``leave_one_out`` that count is reduced by one, since the tested variant may be among them under another
+    transcript's c. description."""
     known = ann.get("known_variants") or []
-    trunc = [k for k in known if re.search(r"(Ter|\*|fs)", k.get("hgvs_p", "")) or
-             re.search(r"c\.\d+[+-][12][ACGT]>", k.get("hgvs_c", ""))]
+    n_trunc = sum(1 for k in known if _is_truncating(k))
+    if ann.get("_gene_truncating_all") is not None:
+        n_trunc = max(n_trunc, ann["_gene_truncating_all"] - (1 if leave_one_out else 0))
     loeuf = (ann.get("constraint") or {}).get("loeuf")
     notes = ann.setdefault("_derived", [])
     if "lof_mechanism" not in ann:
-        if len(trunc) >= 3:
+        if n_trunc >= 3:
             ann["lof_mechanism"] = True
             ann["_lof_derived"] = "clinvar"     # remembered so leave-one-out can recount without the target
-            notes.append(f"LOF mechanism inferred: {len(trunc)} P/LP truncating/canonical-splice variants in ClinVar.")
+            notes.append(f"LOF mechanism inferred: {n_trunc} P/LP truncating/canonical-splice variants in ClinVar.")
         elif loeuf is not None and loeuf < 0.35:
             ann["lof_mechanism"] = True
             notes.append(f"LOF mechanism inferred from gnomAD LOEUF {loeuf:.2f} (<0.35).")
@@ -585,10 +753,11 @@ def recalc_gene_evidence(ctx, fixed_hotspots=(), fixed_lof=None):
     before_hs = set(ctx.get("hotspots") or [])
     before_lof = ctx.get("lof_mechanism")
     prior_derived = set(ctx.get("_hotspots_derived") or [])
-    tmp = {"known_variants": ctx.get("known_variants") or [], "constraint": ctx.get("constraint") or {}}
+    tmp = {"known_variants": ctx.get("known_variants") or [], "constraint": ctx.get("constraint") or {},
+           "_gene_truncating_all": ctx.get("_gene_truncating_all")}
     if fixed_lof is not None:
         tmp["lof_mechanism"] = fixed_lof
-    derive_gene_evidence(tmp)
+    derive_gene_evidence(tmp, leave_one_out=True)
     keep = (before_hs - prior_derived) | set(fixed_hotspots or [])
     # removing a variant can only take hotspots away, never add ones that were not in effect before
     ctx["hotspots"] = sorted(keep | (set(tmp.get("_hotspots_derived") or []) & before_hs))

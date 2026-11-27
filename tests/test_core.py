@@ -72,3 +72,10 @@ def test_pipeline_demo(tmp_path):
     cls = {v["hgvs_c"]: v["classification"] for s in res["samples"] for v in s["variants"]}
     assert cls["c.118C>T"] in ("Pathogenic", "Likely pathogenic")
     assert cls["c.9T>C"] in ("Likely benign", "Benign")
+
+
+def test_example_command_runs(tmp_path):
+    """`clavagen example` crashed in 1.0.0-1.0.1 (missing ref_setting in its argument set)."""
+    from clavagen.cli import main
+    assert main(["example", "-o", str(tmp_path)]) in (0, None)
+    assert any(p.suffix == ".html" for p in (tmp_path / "results").rglob("*"))

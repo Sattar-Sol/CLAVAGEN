@@ -52,7 +52,8 @@ class Pipeline:
                  orthologs=None, evidence=None, phenotypes=None, mol_type="auto", aligner="auto",
                  mode="local", strict=False, patient=None, min_identity=80.0, online=False,
                  known_variants=None, log=None, auto_cache=None, use_clinvar=True, clinvar_min_stars=0,
-                 family_evidence=None, exclude_known=None, default_reference=None, phases=None):
+                 family_evidence=None, exclude_known=None, default_reference=None, phases=None,
+                 clinical_evidence=None):
         ft = None if mol_type == "auto" else mol_type
         self.log = log or (lambda *_: None)
         self.online = online
@@ -69,6 +70,9 @@ class Pipeline:
         self.pairs = dict(p.split(":", 1) for p in (pairs or []))
         self.orthologs = load_sequences(orthologs, "ortholog", "protein") if orthologs else []
         self.user_ev = parse_user_evidence(evidence)
+        # guided clinical evidence: {variant key or "*": {...}} (see clavagen.evidence); converted per gene
+        # rule profile when the reference's annotation has one
+        self.clinical_raw = clinical_evidence or {}
         self.phenotypes = [p.strip() for p in (phenotypes or []) if p.strip()]
         self.aligner = aligner
         self.mode = mode
@@ -333,27 +337,62 @@ class Pipeline:
     def _vep(self, ctx, variants, notes):
         """Per-variant gnomAD AF / REVEL / SpliceAI / AlphaMissense via Ensembl VEP."""
         from .annotation import normalize_hgvs
-        from .online import vep_lookup
+        from .online import mappable, transcript_mapping, vep_lookup
         tx = ctx.get("transcript")
         if not tx:
             notes.append("Variant-level online lookup skipped: transcript accession unknown.")
             return
-        todo = {f"{tx}:{v['hgvs_c']}": v for v in variants if v.get("hgvs_c")}
+        tmap = transcript_mapping(tx)
+        if tmap["note"]:
+            notes.append(tmap["note"])
+
+        def acc(c):  # current version when the c. position carries over unchanged (see transcript_mapping)
+            return tmap["acc"] if tmap["acc"] != tx and mappable(c, tmap) else tx
+        todo = {f"{acc(v['hgvs_c'])}:{v['hgvs_c']}": v for v in variants if v.get("hgvs_c")}
         multi = {}
         for v in variants:
             if not v.get("hgvs_c") and v.get("hgvs_c_candidates"):
                 for c in v["hgvs_c_candidates"]:
-                    multi[f"{tx}:{c}"] = v
+                    multi[f"{acc(c)}:{c}"] = v
         if not todo and not multi:
             return
         todo_all = dict(todo, **multi)
+        unresolved = ctx.setdefault("population_unresolved", set())
         try:
             self.log(f"Looking up {len(todo)} variant(s) in gnomAD/REVEL/SpliceAI via Ensembl VEP...")
             res = vep_lookup(list(todo_all), tx)
         except Exception as e:
-            notes.append(f"Ensembl VEP lookup failed ({e}); population/in-silico data not added.")
+            res = {}
+            err = e
+        else:
+            err = None
+        # VEP's RefSeq set can lag behind NCBI (e.g. NM_000249.5 at NCBI, NM_000249.4 in VEP): retry what failed
+        # on the other version before giving up
+        retry = {}
+        for h, v in todo_all.items():
+            if h not in res and tmap["acc"] != tx:
+                acc_used, c = h.split(":", 1)
+                other = tx if acc_used == tmap["acc"] else (tmap["acc"] if mappable(c, tmap) else None)
+                if other:
+                    retry[f"{other}:{c}"] = h
+        if retry:
+            try:
+                res2 = vep_lookup(list(retry), tx)
+            except Exception as e:
+                res2, err = {}, err or e
+            for h2, h in retry.items():
+                if h2 in res2:
+                    res[h] = res2[h2]
+                    res[h]["_acc"] = h2.split(":", 1)[0]
+        for h, v in todo.items():
+            v["vep_resolved"] = h in res
+            v["lookup_transcript"] = (res[h].get("_acc") or h.split(":", 1)[0]) if h in res else ""
+            if h not in res:
+                unresolved.add(normalize_hgvs(v["hgvs_c"]))
+        if err is not None and not res:
+            notes.append(f"Ensembl VEP lookup failed ({err}); population/in-silico data not added.")
             if ctx.get("_online"):
-                ctx["_online"].setdefault("errors", []).append(f"Ensembl VEP: {e}")
+                ctx["_online"].setdefault("errors", []).append(f"Ensembl VEP: {err}")
             return
         ctx.setdefault("population", {})
         ctx.setdefault("insilico", {})
@@ -390,7 +429,10 @@ class Pipeline:
                                                                            "nucleotide changes)"})
             if a["ins"]:
                 ctx["insilico"].setdefault(key, a["ins"])
-        if not ctx.get("population_dataset"):
+        if not res:
+            notes.append("Ensembl VEP could not resolve the variant(s) on this transcript; "
+                         "population/in-silico data not added.")
+        elif not ctx.get("population_dataset"):
             ctx["population_dataset"] = "gnomAD v4 exomes/genomes (via Ensembl VEP)"
         if ctx.get("_online") is not None:
             ctx["_online"].setdefault("sources", []).append(
@@ -613,8 +655,11 @@ class Pipeline:
         v["population_source"] = (pop.get("source") if pop else None) or ctx.get("population_dataset")
         v["insilico"] = insilico_lookup(ctx, [v.get("hgvs_c"), v.get("hgvs_p")]) or {}
         from .family import vkey
+        from .evidence import from_json
+        from .annotation import normalize_hgvs as _nh
+        ce = {(_nh(k) if k != "*" else "*"): x for k, x in from_json(self.clinical_raw, ctx.get("rules")).items()}
         crit = evaluate(v, ctx, self.user_ev, strict=self.strict, patient_phenotypes=self.phenotypes,
-                        family_ev=self.family_evidence.get(vkey(v)))
+                        family_ev=self.family_evidence.get(vkey(v)), clinical_ev=ce)
         cls = combine(crit)
         v["criteria"] = [c.to_dict() for c in crit]
         v.update(cls)

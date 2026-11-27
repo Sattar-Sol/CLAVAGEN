@@ -152,6 +152,9 @@ def _pvs1(v, ctx):
     plen = v.get("protein_length") or 0
     junc = v.get("junctions_c") or []
     if cons == "start_lost":
+        rs = (ctx.get("rules") or {}).get("start_loss_pvs1")
+        if rs:
+            return rs, f"Start-loss: PVS1_{rs} per gene rules ({(ctx.get('rules') or {}).get('source', 'gene rule profile')})."
         return "Moderate", ("Start-loss: PVS1_Moderate per ClinGen PVS1 tree (check for an in-frame "
                             "downstream Met and pathogenic variants upstream of it).")
     if cons in ("splice_donor_variant", "splice_acceptor_variant", "exon_loss_variant"):
@@ -183,7 +186,39 @@ def _pvs1(v, ctx):
 
 
 # ------------------------------------------------------------------ main
-def evaluate(v, ctx, user_ev=None, strict=False, patient_phenotypes=None, family_ev=None):
+RANK = {"Supporting": 0, "Moderate": 1, "Strong": 2, "VeryStrong": 3, "StandAlone": 4}
+
+
+def apply_gene_rules(C, ctx):
+    """Gene/disease-specific rule profile (e.g. transcribed from a ClinGen expert panel specification):
+    criteria not used for the gene, fixed strengths and strength caps. Thresholds (BA1/BS1/PM2) are in
+    the annotation's 'thresholds'; start-loss PVS1 strength is read in _pvs1."""
+    rules = ctx.get("rules") or {}
+    if not rules:
+        return C
+    src = rules.get("source", "gene rule profile")
+    off = {c.upper() for c in rules.get("disabled", [])}
+    fixed = {k.upper(): v for k, v in (rules.get("strength") or {}).items()}
+    cap = {k.upper(): v for k, v in (rules.get("max_strength") or {}).items()}
+    out = []
+    for c in C:
+        if c.status == "met" and c.code in off:
+            out.append(Criterion(c.code, "not_met", "", f"Not used for this gene ({src}). Automated evidence was: "
+                                                         f"{c.rationale}", "rules"))
+            continue
+        if c.status == "met" and c.code in fixed and c.strength != fixed[c.code]:
+            out.append(Criterion(c.code, "met", fixed[c.code], f"{c.rationale} Strength set to {fixed[c.code]} by gene "
+                                                                  f"rules ({src}).", c.source))
+            continue
+        if c.status == "met" and c.code in cap and RANK.get(c.strength, 0) > RANK.get(cap[c.code], 0):
+            out.append(Criterion(c.code, "met", cap[c.code], f"{c.rationale} Capped at {cap[c.code]} by gene rules "
+                                                               f"({src}).", c.source))
+            continue
+        out.append(c)
+    return out
+
+
+def evaluate(v, ctx, user_ev=None, strict=False, patient_phenotypes=None, family_ev=None, clinical_ev=None):
     """Evaluate ACMG/AMP criteria for one annotated variant (dict). Returns list[Criterion]."""
     C = []
     cons = v["consequence"]
@@ -285,6 +320,8 @@ def evaluate(v, ctx, user_ev=None, strict=False, patient_phenotypes=None, family
     # ---------------- population: BA1 / BS1 / PM2
     pop = population_lookup(ctx, keys)
     has_pop_data = bool(ctx.get("population")) or bool(ctx.get("population_dataset"))
+    if nkeys & set(ctx.get("population_unresolved") or ()):
+        has_pop_data = False   # this variant's own lookup failed: absence from gnomAD is not shown
     ba1_t, bs1_t, pm2_t = _threshold(ctx, "ba1"), _threshold(ctx, "bs1"), _threshold(ctx, "pm2")
     ds = ctx.get("population_dataset") or "provided population data"
     if pop is not None:
@@ -315,12 +352,19 @@ def evaluate(v, ctx, user_ev=None, strict=False, patient_phenotypes=None, family
                            "No population data supplied - query gnomAD and add to annotation 'population'."))
 
     # ---------------- PM4 / BP3
-    rep = (v.get("repeat_copies") or 0) >= 3 or (v.get("repeat_copies", 0) >= 2 and len(v.get("repeat_unit", "")) >= 3)
+    # "Repetitive region" = a repeat at the protein level (e.g. poly-Ala, poly-His, poly-Gln tracts): >=5 identical
+    # residues, or a di-/tri-peptide motif repeated >=3 times. A nucleotide repeat (TTT = Phe-Phe) is not enough.
+    if v.get("aa_repeat_len") is not None:
+        rep = v["aa_repeat_len"] >= 5 and (len(v.get("aa_repeat_unit", "")) == 1 or v.get("aa_repeat_copies", 0) >= 3)
+    else:  # protein not available: codon-level tandem repeat of >= 5 copies
+        unit = v.get("repeat_unit", "")
+        rep = len(unit) % 3 == 0 and len(unit) > 0 and (v.get("repeat_copies") or 0) >= 5
     if inframe:
         if rep and not any(d.get("critical") for d in v.get("domains", [])):
+            tract = (f"{v['aa_repeat_unit']} x{v['aa_repeat_copies']} residues" if v.get("aa_repeat_unit")
+                     else f"{v.get('repeat_unit')} x{v.get('repeat_copies')}")
             C.append(Criterion("BP3", "met", "Supporting",
-                               f"In-frame change in a repetitive region ({v.get('repeat_unit')} x{v.get('repeat_copies')}) "
-                               "outside annotated critical domains."))
+                               f"In-frame change in a repetitive protein region ({tract}) outside annotated critical domains."))
         elif not rep:
             C.append(Criterion("PM4", "met", "Moderate", "In-frame indel/delins in a non-repetitive region alters protein length."))
     if cons == "stop_lost":
@@ -351,17 +395,32 @@ def evaluate(v, ctx, user_ev=None, strict=False, patient_phenotypes=None, family
                     break
         if not pp3 and not bp4:
             C.append(Criterion("PP3", "not_met", "", f"REVEL {r:.3f} in indeterminate range (0.290-0.644)."))
-    if spliceai is not None and not pp3:
+    pvs1_met = any(c.code == "PVS1" and c.status == "met" for c in C)
+    # SpliceAI-only BP4 is meaningful where splicing is the only plausible mechanism (ClinGen SVI splicing
+    # recommendations, Walker 2023): synonymous and non-canonical intronic variants. A low SpliceAI says nothing
+    # about the protein effect of a nonsense, frameshift, in-frame, start/stop or UTR change.
+    splice_only = cons in ("synonymous_variant", "intron_variant", "splice_region_variant")
+    if spliceai is not None:
         s = float(spliceai)
-        if s >= 0.2:
+        if is_missense and bp4 and s > 0.1:
+            # missense BP4 needs both a benign REVEL and no predicted splice impact
+            C.append(Criterion("BP4", "not_met", "", f"{bp4.rationale[:-1]}, but SpliceAI {s:.2f} > 0.1: "
+                                                     "a splicing effect is not excluded."))
+            bp4 = None
+        if not pp3 and s >= 0.2 and not pvs1_met:
             pp3 = Criterion("PP3", "met", "Supporting", f"SpliceAI max delta {s:.2f} >= 0.2 (predicted splice impact).")
-        elif s <= 0.1 and not is_missense and not bp4:
+        elif s <= 0.1 and splice_only and not bp4:
             bp4 = Criterion("BP4", "met", "Supporting", f"SpliceAI max delta {s:.2f} <= 0.1 (no predicted splice impact).")
+    if pp3 and pvs1_met:
+        # PP3 is not combined with PVS1 (ClinGen SVI): the null effect is already counted
+        C.append(Criterion("PP3", "not_met", "", "PVS1 applied - in-silico evidence for the same null effect is not "
+                                                 "counted again (ClinGen SVI)."))
+        pp3 = None
     if is_missense and revel is None and not strict:
         h = heuristic_missense(v)
         if h["call"] == "damaging":
             pp3 = Criterion("PP3", "met", "Supporting", "Heuristic (not calibrated): " + h["why"], "heuristic")
-        elif h["call"] == "tolerated":
+        elif h["call"] == "tolerated" and not pp3:   # never against a splicing PP3
             bp4 = Criterion("BP4", "met", "Supporting", "Heuristic (not calibrated): " + h["why"], "heuristic")
         else:
             C.append(Criterion("PP3", "not_met", "", "Heuristic in-silico evidence indeterminate: " + h["why"], "heuristic"))
@@ -413,6 +472,15 @@ def evaluate(v, ctx, user_ev=None, strict=False, patient_phenotypes=None, family
     if "PP3" in met and "PM1" in met and POINTS[met["PP3"].strength] + POINTS[met["PM1"].strength] > 4:
         met["PM1"].strength = "Supporting"
         met["PM1"].rationale += " [Downgraded: combined PP3+PM1 capped at Strong (ClinGen SVI).]"
+
+    C = apply_gene_rules(C, ctx)
+
+    # ---------------- clinical evidence entered by the user (guided form / JSON), converted with ClinGen rules
+    ce = clinical_ev or {}
+    for key in list(nkeys) + ["*"]:
+        for code, strength, why in ce.get(key, []):
+            C = [c for c in C if c.code != code]
+            C.append(Criterion(code, "met" if strength else "not_met", strength or "", why, "clinical"))
 
     # ---------------- family evidence (de novo, phase, segregation)
     for code, strength, why in (family_ev or []):

@@ -48,6 +48,12 @@ def _add_run_args(p):
     p.add_argument("--ref-setting", action="append",
                    help="Per-reference setting by reference ID or gene symbol, e.g. NM_000454.5:inheritance=AD/AR or SOD1:inheritance=AD/AR (repeatable).")
     p.add_argument("-p", "--phenotype", action="append", help="Patient phenotype term / HPO label (repeatable) for PP4.")
+    p.add_argument("--clinical-evidence", metavar="JSON",
+                   help="Clinical evidence you observed (segregation, phase, functional assays, de novo, case data...), "
+                        "converted to ACMG criteria with ClinGen rules. See 'clavagen evidence-template'.")
+    p.add_argument("--rules", metavar="JSON",
+                   help="Gene rule profile (e.g. from a ClinGen expert panel specification): thresholds, criteria not "
+                        "used, fixed strengths and caps. See 'clavagen evidence-template'.")
     p.add_argument("--patient-id"), p.add_argument("--sex", choices=["male", "female", "unknown"])
     p.add_argument("--age"), p.add_argument("--indication", help="Clinical indication for testing.")
     p.add_argument("-t", "--type", default="auto", choices=["auto", "dna", "protein"], help="Force query molecule type.")
@@ -68,6 +74,73 @@ def _evidence(args):
     return ev
 
 
+def _apply_rules(ann, path):
+    """Merge a gene rule profile into the annotation. The file is either one profile
+    {"source", "thresholds", "disabled", "strength", "max_strength", "start_loss_pvs1", "pp1_meioses"} for all
+    references, or {"GENE or reference id": profile, ...}."""
+    if not path:
+        return ann
+    with open(path) as fh:
+        prof = json.load(fh)
+    ann = dict(ann or {})
+    keys = {"source", "thresholds", "disabled", "strength", "max_strength", "start_loss_pvs1", "pp1_meioses"}
+    prof = {k: v for k, v in prof.items() if not k.startswith("_")}
+    per = prof if not (set(prof) & keys) else {"*": prof}
+
+    def put(target, p):
+        p = {k: v for k, v in p.items() if not k.startswith("_")}
+        if "thresholds" in p:
+            target["thresholds"] = dict(target.get("thresholds") or {}, **p.pop("thresholds"))
+        target["rules"] = dict(target.get("rules") or {}, **p)
+    for k, p in per.items():
+        if k == "*":
+            put(ann, p)
+        else:
+            refs = ann.setdefault("references", {})
+            put(refs.setdefault(k, {}), p)
+    return ann
+
+
+TEMPLATE = {
+    "clinical_evidence": {
+        "_help": "Keys: a variant (c. or p.) or '*' for all variants of this patient. Leave out what you do not have.",
+        "c.20A>T": {
+            "segregation": {"informative_meioses": 5, "families": 2},
+            "in_trans": [{"partner": "Pathogenic", "phase": "confirmed"}],
+            "homozygous_probands": 0,
+            "functional": {"result": "damaging", "oddspath": 20, "assay": "enzyme activity <10%"},
+            "de_novo": [{"confirmed": True, "phenotype": "specific"}],
+            "case_control": {"odds_ratio": 6.2, "ci_lower": 2.1},
+            "affected_probands": {"count": 4, "strength": "Moderate"},
+            "phenotype_specific": True,
+            "healthy_adults": {"count": 0, "zygosity": "homozygous"},
+            "non_segregation": False, "benign_phase": False, "alternative_cause": False
+        }
+    },
+    "rules": {
+        "_help": "One profile for all references, or {'GENE': profile}. Copy values from the expert panel "
+                 "specification (ClinGen CSpec Registry, https://cspec.clinicalgenome.org) - do not guess them.",
+        "MYGENE": {
+            "source": "ClinGen <panel> VCEP specification v<version> (<CSpec URL>)",
+            "thresholds": {"ba1": 0.001, "bs1": 0.0002, "pm2": 0.00002},
+            "disabled": ["PP2"],
+            "strength": {"PM2": "Supporting"},
+            "max_strength": {"PP3": "Supporting"},
+            "start_loss_pvs1": "Moderate",
+            "pp1_meioses": {"Supporting": 3, "Moderate": 5, "Strong": 7}
+        }
+    }
+}
+
+
+def cmd_evidence_template(args):
+    out = args.output or "clavagen_evidence_template.json"
+    with open(out, "w") as fh:
+        json.dump(TEMPLATE, fh, indent=2)
+    print(f"Template written to {os.path.abspath(out)}. Save the 'clinical_evidence' part as one file "
+          "(--clinical-evidence) and the 'rules' part as another (--rules), and replace the example values.")
+
+
 def cmd_run(args):
     patient = {"id": args.patient_id, "sex": args.sex, "age": args.age, "indication": args.indication}
     patient = {k: v for k, v in patient.items() if v}
@@ -81,14 +154,19 @@ def cmd_run(args):
             known += parse_known_variants_text(k, default_source="Command line")
     online = not getattr(args, "offline", False)
     from .annotation import load_annotation
-    ann = _apply_ref_settings(load_annotation(args.annotation) if args.annotation else None, args.ref_setting)
+    ann = _apply_ref_settings(load_annotation(args.annotation) if args.annotation else None, getattr(args, "ref_setting", None))
+    ann = _apply_rules(ann, getattr(args, "rules", None))
+    clin = None
+    if getattr(args, "clinical_evidence", None):
+        with open(args.clinical_evidence) as fh:
+            clin = json.load(fh)
     pl = Pipeline(args.query, args.reference, annotation=ann, gene=args.gene, cds=args.cds,
                   online=online, known_variants=known, log=lambda m: print("  ..", m),
                   use_clinvar=not getattr(args, "no_clinvar_class", False),
                   clinvar_min_stars=getattr(args, "clinvar_min_stars", 0),
                   pairs=args.pair, orthologs=args.orthologs, evidence=_evidence(args), phenotypes=args.phenotype,
                   mol_type=args.type, aligner=args.aligner, mode=args.mode, strict=args.strict,
-                  patient=patient, min_identity=args.min_identity)
+                  patient=patient, min_identity=args.min_identity, clinical_evidence=clin)
     pl.annotation_path = args.annotation
     res = pl.run()
     files = write_all(res, args.outdir, tuple(args.formats.split(",")))
@@ -147,7 +225,7 @@ def cmd_cohort(args):
     ref = args.reference[0] if len(args.reference) == 1 else "\n".join(args.reference)
     if len(args.reference) == 1 and os.path.isfile(args.reference[0]):
         ref = args.reference[0]
-    ann = _apply_ref_settings(load_annotation(args.annotation) if args.annotation else None, args.ref_setting)
+    ann = _apply_ref_settings(load_annotation(args.annotation) if args.annotation else None, getattr(args, "ref_setting", None))
     ref = list(args.reference)
     summ = run_cohort(patients, ref, args.outdir, annotation=ann,
                       gene=args.gene, cds=args.cds, strict=args.strict, online=not args.offline, known=known,
@@ -161,10 +239,18 @@ def cmd_cohort(args):
 
 
 def cmd_benchmark(args):
+    import datetime as _dt
+    import hashlib
+    import platform
+    import sys
     from .benchmark import EREPO_URL, load_erepo, run_benchmark
+    meta = {"command": " ".join(sys.argv), "python": platform.python_version(),
+            "platform": f"{platform.system()} {platform.release()} ({platform.machine()})"}
     if args.erepo:
         with open(args.erepo, encoding="utf-8", errors="replace") as fh:
             text = fh.read()
+        meta["erepo_file"] = os.path.basename(args.erepo)
+        meta["erepo_date"] = _dt.datetime.fromtimestamp(os.path.getmtime(args.erepo)).date().isoformat()
     else:
         from .online import http
         print("Downloading the ClinGen Evidence Repository export...")
@@ -172,18 +258,51 @@ def cmd_benchmark(args):
         os.makedirs(args.outdir, exist_ok=True)
         with open(os.path.join(args.outdir, "erepo_download.tsv"), "w") as fh:
             fh.write(text)
+        meta["erepo_file"] = "erepo_download.tsv"
+        meta["erepo_date"] = _dt.date.today().isoformat()
+    meta["erepo_sha256"] = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    meta["erepo_url"] = EREPO_URL
+    try:
+        from .online import http
+        meta["ensembl_release"] = (http("https://rest.ensembl.org/info/software?content-type=application/json",
+                                        use_cache=False, timeout=15) or {}).get("release")
+    except Exception:
+        meta["ensembl_release"] = None
     recs, stats = load_erepo(text)
+    meta["erepo_filter"] = stats
     print(f"Evidence Repository: {stats['total']} rows; usable exonic NM_ variants: {stats['used']} "
           f"(retracted {stats['retracted']}, no transcript HGVS {stats['no_transcript_hgvs']}, "
           f"intronic/complex {stats['intronic_or_complex']})")
     genes = [g.strip() for g in args.genes.split(",")] if args.genes else None
-    summ = run_benchmark(recs, args.outdir, flank=args.flank, max_n=args.max or None, seed=args.seed, genes=genes)
+    summ = run_benchmark(recs, args.outdir, flank=args.flank, max_n=args.max or None, seed=args.seed, genes=genes,
+                         resume=args.resume, meta=meta, figures=not args.no_figures)
     pct = lambda x: "-" if x is None else f"{100 * x:.1f}%"  # noqa: E731
     print(f"\nAnalysed {summ['analysed']} / {summ['attempted']} variants")
     print(f"  3-tier agreement (P/LP, VUS, B/LB): {pct(summ['three_tier_agreement'])}")
     print(f"  exact 5-class agreement:            {pct(summ['exact_agreement'])}")
     print(f"  critical discordance (P/LP<->B/LB): {pct(summ['critical_discordance'])}")
+    k = (summ.get("statistics") or {}).get("kappa_three_tier") or {}
+    if k.get("kappa") is not None:
+        print(f"  Cohen's kappa (3-tier):             {k['kappa']:.3f} (95% CI {k['ci95'][0]}-{k['ci95'][1]})")
     print(f"Report: {os.path.join(os.path.abspath(args.outdir), 'benchmark_report.html')}")
+    print(f"Tables, methods text and figures: {os.path.abspath(args.outdir)}")
+
+
+def cmd_benchmark_figures(args):
+    import json
+    from .benchmark import summarise
+    from .benchmark_figures import make_figures
+    d = args.folder
+    with open(os.path.join(d, "benchmark_summary.json")) as fh:
+        old = json.load(fh)
+    with open(os.path.join(d, "benchmark_results.jsonl")) as fh:
+        results = [json.loads(line) for line in fh if line.strip()]
+    summ = summarise(results, meta=old.get("run"), seed=(old.get("run") or {}).get("seed", 7))
+    from .benchmark import write_outputs
+    write_outputs(results, summ, d, figures=False)      # summary, tables, methods text and report, recounted
+    made = make_figures(summ, results, os.path.join(d, "figures"))
+    print(f"Summary, tables and report updated; {len(made)} figure files written to "
+          f"{os.path.join(os.path.abspath(d), 'figures')}")
 
 
 def cmd_check(args):
@@ -315,8 +434,17 @@ def main(argv=None):
     p.add_argument("--genes", help="Comma-separated gene list to restrict the benchmark.")
     p.add_argument("--flank", type=int, default=150, help="Bases either side of the variant in the simulated read.")
     p.add_argument("--seed", type=int, default=7)
+    p.add_argument("--resume", action="store_true",
+                   help="Continue an interrupted run in the same output folder (same --erepo, --max, --genes, --seed).")
+    p.add_argument("--no-figures", action="store_true", help="Skip the publication figures.")
     p.add_argument("-o", "--outdir", default="clavagen_benchmark")
     p.set_defaults(func=cmd_benchmark)
+    p = sub.add_parser("evidence-template", help="Write an example clinical-evidence and gene-rules JSON file.")
+    p.add_argument("-o", "--output")
+    p.set_defaults(func=cmd_evidence_template)
+    p = sub.add_parser("benchmark-figures", help="Recount the summary/tables and re-draw the figures of a finished benchmark run (no re-analysis).")
+    p.add_argument("folder", help="Benchmark output folder (with benchmark_summary.json and benchmark_results.jsonl).")
+    p.set_defaults(func=cmd_benchmark_figures)
     p = sub.add_parser("check-connection", help="Test access to NCBI, UniProt, gnomAD and Ensembl.")
     p.set_defaults(func=cmd_check)
     p = sub.add_parser("align", help="Local/global alignment only.")

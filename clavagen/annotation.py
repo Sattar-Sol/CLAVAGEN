@@ -114,6 +114,7 @@ def normalize_hgvs(s: str) -> str:
     if ":" in s:
         s = s.split(":", 1)[1]
     s = s.replace("(", "").replace(")", "").replace(" ", "")
+    s = re.sub(r"del[ACGTN]+ins", "delins", s)  # c.470_471delGAinsAC == c.470_471delinsAC
     s = re.sub(r"(del|dup)[ACGTN]+$", r"\1", s)
     s = s.replace("*", "Ter") if s.startswith("p.") else s
     if s.startswith("p.") and re.match(r"^p\.[A-Z]\d+[A-Z]$", s):  # one-letter missense

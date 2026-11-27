@@ -119,6 +119,14 @@ def analyse_disagreement(row):
     row["strength_diffs"] = sorted(f"{c}: tool {t_comp[c]} / expert {e_comp[c]}" for c in set(t_comp) & set(e_comp)
                                    if e_comp[c] and t_comp[c] and e_comp[c] != t_comp[c])
     row["expert_computable_class"] = combine_codes({c: st or "Supporting" for c, st in e_comp.items()})
+    # simulated: the user enters the clinical evidence the experts had (criteria a sequence tool cannot compute),
+    # CLAVAGEN keeps its own automated criteria
+    from .acmg import CRITERIA
+    sup = dict(t)
+    for c in row["expert_noncomputable"]:
+        if c in CRITERIA:
+            sup[c] = e.get(c) or CRITERIA[c][1]
+    row["supplemented_class"] = combine_codes({c: st or "Supporting" for c, st in sup.items()})
     if row.get("tool_class") == row["expert_class"]:
         row["disagreement"] = ""
     elif row.get("tool_class") == row["expert_computable_class"]:
@@ -148,7 +156,11 @@ def load_erepo(text):
     c_moi = _col(header, "inheritance")
     c_panel = _col(header, "expert panel") or _col(header, "panel")
     c_retr = _col(header, "retract")
-    stats = {"total": len(rows), "retracted": 0, "no_transcript_hgvs": 0, "intronic_or_complex": 0, "used": 0}
+    c_car = _col(header, "allele registry")
+    c_cv = _col(header, "clinvar")
+    c_dis = _col(header, "disease")
+    stats = {"total": len(rows), "retracted": 0, "no_class": 0, "no_transcript_hgvs": 0, "intronic_or_complex": 0,
+             "used": 0}
     out = []
     for r in rows:
         if c_retr and str(r.get(c_retr, "")).strip().lower() in ("true", "yes", "1", "retracted"):
@@ -156,6 +168,7 @@ def load_erepo(text):
             continue
         cls = norm_class(r.get(c_assert, ""))
         if not cls:
+            stats["no_class"] += 1
             continue
         texts = [r.get(c_title, "") or "", r.get(c_hgvs, "") or ""]
         hits = [m for t in texts for m in _HGVS.finditer(t)]
@@ -175,7 +188,10 @@ def load_erepo(text):
                     "expert_class": cls, "expert_codes": sorted(parse_codes(r.get(c_met, "") if c_met else "")),
                     "expert_criteria": parse_criteria(r.get(c_met, "") if c_met else ""),
                     "moi": (r.get(c_moi) or "").strip() if c_moi else "",
-                    "panel": (r.get(c_panel) or "").strip() if c_panel else ""})
+                    "panel": (r.get(c_panel) or "").strip() if c_panel else "",
+                    "caid": (r.get(c_car) or "").strip() if c_car else "",
+                    "clinvar_id": (r.get(c_cv) or "").strip() if c_cv else "",
+                    "disease": (r.get(c_dis) or "").strip() if c_dis else ""})
     stats["used"] = len(out)
     return out, stats
 
@@ -238,7 +254,24 @@ def apply_c(mrna, cds, c):
 
 
 # ------------------------------------------------------------------ run
-def run_benchmark(records, out_dir, flank=150, max_n=None, seed=7, genes=None, log=None, online=True):
+VARIANT_TYPE = {"missense_variant": "missense", "synonymous_variant": "synonymous", "stop_gained": "nonsense",
+                "frameshift_variant": "frameshift", "inframe_deletion": "inframe indel",
+                "inframe_insertion": "inframe indel", "start_lost": "start/stop loss", "stop_lost": "start/stop loss",
+                "splice_region_variant": "splice region", "5_prime_UTR_variant": "UTR", "3_prime_UTR_variant": "UTR"}
+
+
+NETWORK_ERR = r"(no internet connection|timed out|HTTP 5\d\d|HTTP 429|Connection reset|Temporary failure)"
+
+
+def _key(r):
+    return f"{r['transcript']}:{r['hgvs_c']}"
+
+
+def run_benchmark(records, out_dir, flank=150, max_n=None, seed=7, genes=None, log=None, online=True,
+                  resume=False, meta=None, figures=True):
+    """Analyse each record; per-variant results are appended to benchmark_results.jsonl as they finish,
+    so an interrupted run continues with ``resume=True`` (same records, seed and --max)."""
+    import time
     from .annotation import normalize_hgvs
     from .online import fetch_refseq
     from .pipeline import Pipeline
@@ -260,7 +293,29 @@ def run_benchmark(records, out_dir, flank=150, max_n=None, seed=7, genes=None, l
     tx_cache, auto_cache, results = {}, {}, []
     ref_dir = os.path.join(out_dir, "references")
     os.makedirs(ref_dir, exist_ok=True)
+    jl = os.path.join(out_dir, "benchmark_results.jsonl")
+    done = {}
+    if resume and os.path.isfile(jl):
+        with open(jl) as fh:
+            for line in fh:
+                try:
+                    d = json.loads(line)
+                    if d.get("status") != "error":      # errors (e.g. internet drop) are tried again
+                        done[_key(d)] = d
+                except (ValueError, KeyError):
+                    pass  # a line cut off by the interruption
+        log(f"Resuming: {len(done)} variant(s) already analysed in {jl}.")
+    meta = dict(meta or {})
+    meta.update({"started": meta.get("started") or _dt.datetime.now().isoformat(timespec="seconds"),
+                 "flank": flank, "max": max_n or 0, "seed": seed, "genes": genes or "all", "online": online,
+                 "selected": len(recs), "resumed_from": len(done)})
+    t_start = time.time()
+    jfh = open(jl, "a" if resume else "w")
     for k, r in enumerate(recs, 1):
+        if _key(r) in done:
+            results.append(done[_key(r)])
+            continue
+        t0 = time.time()
         row = dict(r, tool_class="", tool_acmg="", tool_codes=[], status="", note="")
         try:
             tx = r["transcript"]
@@ -285,6 +340,16 @@ def run_benchmark(records, out_dir, flank=150, max_n=None, seed=7, genes=None, l
             vs = res["samples"][0]["variants"]
             target = [v for v in vs if normalize_hgvs(v.get("hgvs_c", "")) == normalize_hgvs(r["hgvs_c"])]
             if not target:
+                # same change written differently (e.g. c.904delT vs 3'-shifted c.907del): compare the sequences
+                for v in vs:
+                    try:
+                        if v.get("hgvs_c") and apply_c(gb["seq"], gb["cds"], v["hgvs_c"])[0] == mut:
+                            target = [v]
+                            row["note"] = f"expert HGVS {r['hgvs_c']} = {v['hgvs_c']} (HGVS 3' rule)"
+                            break
+                    except Exception:
+                        pass
+            if not target:
                 row["status"] = "variant not recovered"
                 row["note"] = "called: " + ", ".join(v.get("hgvs_c", "") for v in vs)
             else:
@@ -292,21 +357,61 @@ def run_benchmark(records, out_dir, flank=150, max_n=None, seed=7, genes=None, l
                 row.update(tool_class=v["classification"], tool_acmg=v.get("acmg_classification", v["classification"]),
                            tool_codes=sorted({c.split("_")[0] for c in v["criteria_met"]}), status="ok",
                            tool_criteria=parse_criteria(" ".join(v["criteria_met"])), points=v.get("points"))
+                row["population_af"] = v.get("population_af")
+                row["revel"] = (v.get("insilico") or {}).get("REVEL")
+                row["spliceai"] = (v.get("insilico") or {}).get("SpliceAI")
+                row["hgvs_p"] = v.get("hgvs_p", "")
+                row["consequence"] = v.get("consequence", "")
+                row["variant_type"] = VARIANT_TYPE.get(v.get("consequence", ""), v.get("consequence", "") or "other")
+                row["tool_criteria_str"] = ",".join(f"{c}_{st}" for c, st in sorted(row["tool_criteria"].items()))
                 analyse_disagreement(row)
                 if len(vs) > 1:
-                    row["note"] = f"{len(vs) - 1} additional call(s) in the window"
+                    row["note"] = "; ".join(filter(None, [row["note"], f"{len(vs) - 1} additional call(s) in the window"]))
+            # keep data-source problems visible (e.g. old transcript version, VEP lookup failure)
+            qn = [n for n in (res["samples"][0].get("qc") or {}).get("notes", [])
+                  if "VEP" in n or "RefSeq version" in n or "current version" in n]
+            if qn:
+                row["note"] = "; ".join(filter(None, [row["note"]] + qn))[:400]
+            if row["status"] == "ok":
+                row["lookup_transcript"] = v.get("lookup_transcript", "")
+                row["vep_resolved"] = v.get("vep_resolved")
+            allnotes = " ".join((res["samples"][0].get("qc") or {}).get("notes", []))
+            if row["status"] == "ok" and re.search(NETWORK_ERR, allnotes):
+                # a dropped connection is not a property of the variant: mark it so --resume tries again
+                row["status"] = "error"
+                row["note"] = "network: " + re.search(NETWORK_ERR + r"[^;]*", allnotes).group(0)[:160]
         except Exception as e:
             row["status"] = "error"
             row["note"] = str(e)[:200]
+        row["seconds"] = round(time.time() - t0, 2)
         results.append(row)
+        jfh.write(json.dumps(row, default=str) + "\n")
+        jfh.flush()
         if k % 10 == 0 or k == len(recs):
-            log(f"  {k}/{len(recs)} variants processed")
-    summary = summarise(results)
-    write_outputs(results, summary, out_dir)
+            el = time.time() - t_start
+            todo = len(recs) - k
+            new = max(1, k - len([1 for x in recs[:k] if _key(x) in done]))
+            eta = f", about {el / new * todo / 60:.0f} min left" if todo and new >= 10 else ""
+            log(f"  {k}/{len(recs)} variants processed{eta}")
+    jfh.close()
+    meta["finished"] = _dt.datetime.now().isoformat(timespec="seconds")
+    meta["run_seconds"] = round(time.time() - t_start)
+    summary = summarise(results, meta=meta, seed=seed)
+    write_outputs(results, summary, out_dir, figures=figures, log=log)
     return summary
 
 
-def summarise(results):
+NOT_TESTABLE = r"(outside transcript|reference base mismatch)"
+
+
+def _not_testable(r):
+    """The expert HGVS cannot be placed on the RefSeq transcript record (e.g. a promoter position beyond
+    its 5' end, or a reference base that differs): a property of the input, not a tool error."""
+    return r["status"] == "error" and bool(re.search(NOT_TESTABLE, r.get("note", "")))
+
+
+def summarise(results, meta=None, seed=7):
+    from .benchmark_stats import publication_stats
     ok = [r for r in results if r["status"] == "ok"]
     n = len(ok)
     exact = sum(1 for r in ok if r["tool_class"] == r["expert_class"])
@@ -352,7 +457,8 @@ def summarise(results):
     return {"software": f"CLAVAGEN {__version__}", "date": _dt.datetime.now().isoformat(timespec="seconds"),
             "attempted": len(results), "analysed": n,
             "not_recovered": sum(1 for r in results if r["status"] == "variant not recovered"),
-            "errors": sum(1 for r in results if r["status"] == "error"),
+            "not_testable": sum(1 for r in results if _not_testable(r)),
+            "errors": sum(1 for r in results if r["status"] == "error" and not _not_testable(r)),
             "exact_agreement": round(exact / n, 3) if n else None,
             "three_tier_agreement": round(t3 / n, 3) if n else None,
             "critical_discordance": round(crit / n, 3) if n else None, "critical_n": crit,
@@ -360,27 +466,227 @@ def summarise(results):
             "discordant": len(disc), "disagreement": disagreement,
             "computable_exact_agreement": round(comp_exact / n, 3) if n else None,
             "computable_three_tier_agreement": round(comp_t3 / n, 3) if n else None,
-            "computable_criteria": sorted(COMPUTABLE)}
+            "computable_criteria": sorted(COMPUTABLE),
+            "statistics": publication_stats(ok, seed=seed) if ok else {},
+            "status_counts": {s: sum(1 for r in results if r["status"] == s) for s in sorted({r["status"] for r in results})},
+            "run": meta or {}}
 
 
-def write_outputs(results, summary, out_dir):
+TSV_COLUMNS = ["gene", "transcript", "hgvs_c", "hgvs_p", "variant_type", "expert_class", "tool_class", "agree_5class",
+               "agree_3tier", "expert_codes", "tool_codes", "expert_criteria", "tool_criteria", "points",
+               "expert_computable_class", "disagreement", "tool_only_codes", "expert_only_codes", "strength_differences",
+               "expert_noncomputable_codes", "population_af", "revel", "spliceai", "vep_resolved", "lookup_transcript", "panel", "disease",
+               "moi", "caid", "clinvar_id", "seconds", "status", "note"]
+
+
+def _tsv_row(r):
+    ok = r["status"] == "ok"
+    ec = r.get("expert_criteria") or {}
+    val = {"agree_5class": r.get("tool_class") == r["expert_class"] if ok else "",
+           "agree_3tier": tier(r.get("tool_class", "")) == tier(r["expert_class"]) if ok else "",
+           "expert_codes": ",".join(r.get("expert_codes", [])), "tool_codes": ",".join(r.get("tool_codes", [])),
+           "expert_criteria": ",".join(f"{c}_{s}" if s else c for c, s in sorted(ec.items())),
+           "tool_criteria": r.get("tool_criteria_str", ""),
+           "tool_only_codes": ",".join(r.get("extra_codes", [])), "expert_only_codes": ",".join(r.get("missed_codes", [])),
+           "strength_differences": "; ".join(r.get("strength_diffs", [])),
+           "expert_noncomputable_codes": ",".join(r.get("expert_noncomputable", []))}
+    return ["" if (x := val.get(c, r.get(c, ""))) is None else x for c in TSV_COLUMNS]
+
+
+def _write_tables(summary, out_dir):
+    """CSV tables ready for a manuscript (Table 1-4) and a methods/results text with the numbers filled in."""
+    st = summary.get("statistics") or {}
+    if not st:
+        return
+    td = os.path.join(out_dir, "tables")
+    os.makedirs(td, exist_ok=True)
+
+    def ci(d):
+        return f"{100 * d['p']:.1f} ({100 * d['ci95'][0]:.1f}-{100 * d['ci95'][1]:.1f})" if d and d.get("p") is not None else ""
+
+    def kci(d):
+        return f"{d['kappa']:.3f} ({d['ci95'][0]:.3f}-{d['ci95'][1]:.3f})" if d and d.get("ci95", [None])[0] is not None else ""
+    with open(os.path.join(td, "table1_overall.csv"), "w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["Measure", "n / N", "% (95% CI)"])
+        for lab, key in (("3-tier agreement (P/LP, VUS, B/LB)", "three_tier"), ("Exact 5-class agreement", "exact"),
+                         ("Critical discordance (P/LP vs B/LB)", "critical_discordance"),
+                         ("3-tier agreement, expert class from computable criteria", "computable_three_tier"),
+                         ("Exact agreement, expert class from computable criteria", "computable_exact")):
+            d = st[key]
+            w.writerow([lab, f"{d['k']}/{d['n']}", ci(d)])
+        for t in ("P/LP", "B/LB"):
+            for m, lab in (("sensitivity", "sensitivity"), ("ppv", "positive predictive value")):
+                d = st["detection"][t][m]
+                w.writerow([f"{t} {lab}", f"{d['k']}/{d['n']}", ci(d)])
+        w.writerow(["Cohen's kappa, 3-tier", "", kci(st["kappa_three_tier"])])
+        w.writerow(["Linearly weighted kappa, 5-class", "", kci(st["weighted_kappa_five_class"])])
+        sp = st.get("with_clinical_evidence") or {}
+        if sp:
+            for lab, key in (("With the experts' clinical evidence entered (simulation): 3-tier agreement", "three_tier"),
+                             ("With the experts' clinical evidence entered (simulation): exact agreement", "exact"),
+                             ("With the experts' clinical evidence entered (simulation): critical discordance",
+                              "critical_discordance")):
+                d = sp[key]
+                w.writerow([lab, f"{d['k']}/{d['n']}", ci(d)])
+            w.writerow(["With the experts' clinical evidence entered (simulation): Cohen's kappa, 3-tier", "",
+                        kci(sp["kappa_three_tier"])])
+    for name, key in (("table2_by_panel.csv", "by_panel"), ("table2b_by_gene.csv", "by_gene"),
+                      ("table2c_by_variant_type.csv", "by_variant_type"), ("table2d_by_expert_tier.csv", "by_expert_tier")):
+        with open(os.path.join(td, name), "w", newline="") as fh:
+            w = csv.writer(fh)
+            w.writerow(["Group", "n", "Expert P/LP", "Expert VUS", "Expert B/LB", "3-tier agreement % (95% CI)",
+                        "Exact agreement % (95% CI)", "Critical discordance n"])
+            for g, d in st[key].items():
+                w.writerow([g, d["n"], *[d["expert_tiers"][t] for t in ("P/LP", "VUS", "B/LB")], ci(d["three_tier"]),
+                            ci(d["exact"]), d["critical"]["k"]])
+    with open(os.path.join(td, "table3_criteria.csv"), "w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["Criterion", "Computable by CLAVAGEN", "Both (TP)", "Tool only (FP)", "Experts only (FN)",
+                    "Precision % (95% CI)", "Recall % (95% CI)"])
+        for c, d in summary["criteria"].items():
+            w.writerow([c, "yes" if c in COMPUTABLE else "no", d["tp"], d["fp"], d["fn"],
+                        ci(prop_(d["tp"], d["tp"] + d["fp"])), ci(prop_(d["tp"], d["tp"] + d["fn"]))])
+    with open(os.path.join(td, "table4_disagreement.csv"), "w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["Main cause of disagreement", "n", "% of discordant"])
+        nd = summary.get("discordant") or 0
+        for k, v in summary["disagreement"].items():
+            w.writerow([k, v, f"{100 * v / nd:.1f}" if nd else ""])
+    with open(os.path.join(td, "confusion_matrix.csv"), "w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["Expert \\ CLAVAGEN", *CLASSES])
+        for e in CLASSES:
+            w.writerow([e, *[summary["confusion"][e][t] for t in CLASSES]])
+    _write_methods(summary, out_dir, ci, kci)
+
+
+def prop_(k, n):
+    from .benchmark_stats import prop
+    return prop(k, n)
+
+
+def _write_methods(summary, out_dir, _ci, _kci):
+    def ci(d):  # "66.7% (95% CI 52.5-78.3)"
+        return (f"{100 * d['p']:.1f}% (95% CI {100 * d['ci95'][0]:.1f}-{100 * d['ci95'][1]:.1f})"
+                if d and d.get("p") is not None else "n/a")
+
+    def kci(d):
+        k = _kci(d)
+        return f"{k.split(' ')[0]} (95% CI {k.split('(')[1].rstrip(')')}), {_lk(d)}" if k else "not estimable (too few variants)"
+    st, run = summary["statistics"], summary.get("run") or {}
+    f = run.get("erepo_filter") or {}
+    cov = st["evidence_coverage"]
+    nc = st["noncomputable_criteria"]
+    sample = (f", of which a stratified sample of {run.get('selected')} was analysed (seed {run.get('seed')})"
+              if run.get("max") else "")
+    gsel = "" if run.get("genes") in (None, "all") else f" Analysis was restricted to {', '.join(run['genes'])}."
+    lines = [
+        "# Benchmark: methods and results (numbers filled in by CLAVAGEN)", "",
+        "Draft text for a manuscript. Check every sentence against your own understanding before using it.", "",
+        "## Methods", "",
+        f"Expert-panel classifications were taken from the ClinGen Evidence Repository export "
+        f"({run.get('erepo_file', 'downloaded file')}, SHA-256 {run.get('erepo_sha256', 'n/a')[:16]}..., "
+        f"{f.get('total', '?')} rows, retrieved {run.get('erepo_date', 'n/a')}). Retracted assertions "
+        f"({f.get('retracted', '?')}), rows without a recognised classification ({f.get('no_class', '?')}), rows without an NM_ "
+        f"transcript c. description ({f.get('no_transcript_hgvs', '?')}) and intronic or complex variants "
+        f"({f.get('intronic_or_complex', '?')}) were excluded, leaving {f.get('used', '?')} exonic substitutions and small "
+        f"indels{sample}.{gsel}",
+        "",
+        f"For each variant a patient sequence (variant +/- {run.get('flank', 150)} nt) was generated from the RefSeq "
+        f"transcript and analysed with {summary['software']} exactly as user input: alignment to the transcript, "
+        "variant calling, HGVS normalisation and automated ACMG/AMP classification with the ClinGen SVI refinements. "
+        "Population frequencies (gnomAD v4 exomes and genomes) and in-silico scores (REVEL, SpliceAI) were obtained "
+        "through the Ensembl VEP REST service; variants described on an older RefSeq version were looked up on the "
+        "current version when the coding sequence length was unchanged. To avoid information leakage, the "
+        "ClinVar-reported classification was not used, the variant's own ClinVar records were excluded "
+        "(leave-one-out), and gene-level evidence derived from ClinVar (mutational hotspots, loss-of-function "
+        "mechanism) was recounted without the variant.",
+        "",
+        "Agreement was measured on the 3-tier scale (P/LP, VUS, B/LB) and the 5-class scale. Proportions are given "
+        "with Wilson score 95% confidence intervals; agreement beyond chance with Cohen's kappa (3-tier) and linearly "
+        "weighted kappa (5-class), with percentile bootstrap 95% intervals "
+        f"({st['kappa_three_tier'].get('bootstrap', 1000)} resamples, seed {st['kappa_three_tier'].get('seed', 7)}). "
+        "Each disagreement was assigned one main cause: missing evidence (the expert class recalculated from the "
+        "computable criteria alone equals the tool's class), criterion assignment, or evidence strength.",
+        "", "## Results", "",
+        f"Of {summary['attempted']} variants, {summary['analysed']} were analysed "
+        f"({summary.get('not_testable', 0)} could not be placed on the RefSeq transcript record, "
+        f"{summary['not_recovered']} were not recovered as a single call, {summary['errors']} failed). CLAVAGEN agreed with the expert "
+        f"panels on the 3-tier scale for {ci(st['three_tier'])} of variants (Cohen's kappa {kci(st['kappa_three_tier'])}) "
+        f"and on the exact 5-class scale for {ci(st['exact'])} (weighted kappa "
+        f"{kci(st['weighted_kappa_five_class'])}). Critical discordance (P/LP versus B/LB) occurred in "
+        f"{st['critical_discordance']['k']} variants ({ci(st['critical_discordance'])}).",
+        "",
+        f"Experts used at least one criterion that a sequence-based tool cannot evaluate (e.g. PP4, PM3, PS3, PS4) for "
+        f"{ci(nc['variants_with_any'])} of variants. When the expert classification was recalculated from the "
+        f"computable criteria only, 3-tier agreement was {ci(st['computable_three_tier'])}. Of "
+        f"{summary['discordant']} discordant variants, " + ", ".join(
+            f"{v} ({100 * v / summary['discordant']:.0f}%) were due to {k}" for k, v in summary["disagreement"].items()
+            if summary["discordant"]) + ".",
+        "",
+        *([f"In a simulation of the guided clinical-evidence input, the criteria that the experts based on clinical, "
+           f"functional, segregation or case data were added to CLAVAGEN's automated criteria at the experts' strengths. "
+           f"3-tier agreement then rose to {ci(st['with_clinical_evidence']['three_tier'])} (Cohen's kappa "
+           f"{kci(st['with_clinical_evidence']['kappa_three_tier'])}), with "
+           f"{st['with_clinical_evidence']['critical_discordance']['k']} critical discordances. This is an upper bound: "
+           f"it assumes the user has the same clinical evidence as the panel. The remaining disagreements reflect "
+           f"gene-specific rules of the expert panels.", ""] if st.get("with_clinical_evidence") else []),
+        f"Evidence coverage: gnomAD frequency for {ci(cov['population_af'])} of variants, REVEL for "
+        f"{ci(cov['revel_missense'])} of missense variants; {cov['old_transcript_remapped']['k']} variants were looked up "
+        f"on a newer transcript version.",
+        "", f"Run: {run.get('started', '')} to {run.get('finished', '')} ({run.get('run_seconds', 0) // 60} min)"
+        + (f", Python {run['python']} on {run.get('platform', '')}" if run.get("python") else "")
+        + f"; Ensembl release {run.get('ensembl_release') or 'n/a'}.",
+    ]
+    with open(os.path.join(out_dir, "methods_and_results.md"), "w") as fh:
+        fh.write("\n".join(lines) + "\n")
+
+
+def _lk(d):
+    from .benchmark_stats import landis_koch
+    return landis_koch(d.get("kappa")) + " agreement"
+
+
+def _supp_html(summary, pct):
+    sp = (summary.get("statistics") or {}).get("with_clinical_evidence") or {}
+    if not sp:
+        return ""
+    k = sp["kappa_three_tier"].get("kappa")
+    return (f"<h2>If the clinical evidence is entered</h2><p class='muted'>Simulation of the guided clinical-evidence "
+            f"input: the criteria the experts based on clinical, functional, segregation or case data "
+            f"({sp['variants_with_clinical_evidence']} variants) are added to CLAVAGEN's automated criteria at the experts' "
+            f"strengths. An upper bound - it assumes the same clinical evidence as the panel.</p>"
+            f"<div class='kpi'><div><b>{pct(sp['three_tier']['p'])}</b>3-tier agreement</div>"
+            f"<div><b>{pct(sp['exact']['p'])}</b>exact 5-class agreement</div>"
+            f"<div><b>{'' if k is None else f'{k:.2f}'}</b>Cohen's kappa (3-tier)</div>"
+            f"<div><b>{sp['critical_discordance']['k']}</b>critical discordances</div></div>")
+
+
+def write_outputs(results, summary, out_dir, figures=True, log=None):
+    os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, "benchmark_results.tsv"), "w", newline="") as fh:
         w = csv.writer(fh, delimiter="\t")
-        w.writerow(["gene", "transcript", "hgvs_c", "expert_class", "tool_class", "agree_5class", "agree_3tier",
-                    "expert_codes", "tool_codes", "points", "expert_computable_class", "disagreement",
-                    "tool_only_codes", "expert_only_codes", "strength_differences", "expert_noncomputable_codes",
-                    "panel", "status", "note"])
+        w.writerow(TSV_COLUMNS)
         for r in results:
-            w.writerow([r["gene"], r["transcript"], r["hgvs_c"], r["expert_class"], r.get("tool_class", ""),
-                        r.get("tool_class") == r["expert_class"] if r["status"] == "ok" else "",
-                        tier(r.get("tool_class", "")) == tier(r["expert_class"]) if r["status"] == "ok" else "",
-                        ",".join(r["expert_codes"]), ",".join(r.get("tool_codes", [])), r.get("points", ""),
-                        r.get("expert_computable_class", ""), r.get("disagreement", ""),
-                        ",".join(r.get("extra_codes", [])), ",".join(r.get("missed_codes", [])),
-                        "; ".join(r.get("strength_diffs", [])), ",".join(r.get("expert_noncomputable", [])),
-                        r.get("panel", ""), r["status"], r.get("note", "")])
+            w.writerow(_tsv_row(r))
     with open(os.path.join(out_dir, "benchmark_summary.json"), "w") as fh:
-        json.dump(summary, fh, indent=2)
+        json.dump(summary, fh, indent=2, default=str)
+    _write_tables(summary, out_dir)
+    if figures and summary.get("statistics"):
+        from .benchmark_figures import make_figures
+        try:
+            made = make_figures(summary, results, os.path.join(out_dir, "figures"))
+            if log and made:
+                log(f"Figures: {len(made)} written to {os.path.join(out_dir, 'figures')}")
+        except Exception as e:  # figures must never cost the results of a long run
+            if not isinstance(e, ImportError):
+                if log:
+                    log(f"Figures failed ({e}); results are saved. Re-draw with 'clavagen benchmark-figures {out_dir}'.")
+                return
+            if log:
+                log("Figures skipped: matplotlib is not installed (pip install matplotlib, then "
+                    "'clavagen benchmark-figures " + out_dir + "').")
     pct = lambda x: "-" if x is None else f"{100 * x:.1f}%"  # noqa: E731
     conf_rows = "".join(
         f"<tr><th>{escape(e)}</th>" + "".join(
@@ -407,7 +713,7 @@ the variant's own ClinVar record excluded, and ClinVar-derived hotspots / loss-o
 <div class="kpi"><div><b>{summary['analysed']}</b>variants analysed</div><div><b>{pct(summary['three_tier_agreement'])}</b>3-tier agreement
 (P/LP, VUS, B/LB)</div><div><b>{pct(summary['exact_agreement'])}</b>exact 5-class agreement</div>
 <div><b>{pct(summary['critical_discordance'])}</b>critical discordance (P/LP vs B/LB; n={summary['critical_n']})</div></div>
-<p class="muted">Attempted {summary['attempted']}; not recovered {summary['not_recovered']}; errors {summary['errors']}.</p>
+<p class="muted">Attempted {summary['attempted']}; not testable on the RefSeq transcript {summary.get('not_testable', 0)}; not recovered {summary['not_recovered']}; errors {summary['errors']}.</p>
 <h2>Why the classifications differ</h2>
 <p class="muted">Each of the {summary.get('discordant', 0)} discordant variants is assigned one main cause.
 <b>Missing evidence</b>: recomputing the expert classification from the computable criteria only gives the tool's class -
@@ -419,6 +725,7 @@ the experts used evidence a sequence-based tool cannot have (functional, case, s
 recomputed from computable criteria</div><div><b>{pct(summary.get('computable_exact_agreement'))}</b>exact 5-class agreement
 (computable criteria)</div></div>
 <p class="muted">Computable criteria: {escape(', '.join(summary.get('computable_criteria', [])))}.</p>
+{_supp_html(summary, pct)}
 <h2>Agreement by expert tier</h2><table><tr><th>Expert tier</th><th>n</th><th>Tool agrees</th></tr>{tiers}</table>
 <h2>Confusion matrix</h2><p class="muted">Rows: expert panel; columns: CLAVAGEN.</p>
 <table><tr><th></th>{''.join(f'<th>{escape(c)}</th>' for c in CLASSES)}</tr>{conf_rows}</table>

@@ -6,7 +6,7 @@
 
 ACMG/AMP variant classification for patients and families, from DNA, protein or Sanger sequences.
 
-![Python](https://img.shields.io/badge/python-3.8%2B-blue) ![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey) ![License](https://img.shields.io/badge/license-MIT-green) ![Tests](https://img.shields.io/badge/tests-50%20passing-brightgreen)
+![Python](https://img.shields.io/badge/python-3.8%2B-blue) ![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey) ![License](https://img.shields.io/badge/license-MIT-green) ![Tests](https://img.shields.io/badge/tests-88%20passing-brightgreen)
 
 CLAVAGEN is a desktop application for individual patients and whole families:
 - **Input:** it reads DNA sequences, protein sequences and Sanger traces (`.ab1`) in common file formats, against one or several reference genes.
@@ -32,9 +32,11 @@ CLAVAGEN is a desktop application for individual patients and whole families:
 | **Annotation** | ClinVar (with review stars), RefSeq, UniProt, gnomAD, Ensembl VEP (REVEL, SpliceAI, AlphaMissense); 30-day cache; offline mode |
 | **Classification** | ACMG/AMP 2015 + ClinGen SVI (PVS1 decision tree, PM2_Supporting, calibrated REVEL), point-based tiers; ClinVar classification reported for known variants, automated class always shown beside it |
 | **Genotype** | One genotype per patient and gene across all files: heterozygous, homozygous, compound heterozygous (in trans / in cis / phase unknown), with variant types (null, missense, in-frame …) |
+| **Clinical evidence** | Guided input of what you observed (informative meioses, cases in trans, functional assay OddsPath, de novo occurrences, case counts, healthy carriers, phenotype specificity), converted to criteria and strengths with the published ClinGen rules; the calculation is shown in the report |
+| **Gene rule profiles** | Gene-specific settings copied from an expert panel specification (ClinGen CSpec): thresholds, criteria not used, fixed strengths and caps, start-loss PVS1, segregation thresholds |
 | **Families** | De novo (PS2/PM6, also in siblings), phase (PM3/BP2), segregation (PP1/BS4), couple reproductive risk, pedigree drawing |
 | **Outputs** | Variant maps (SVG/PNG), local alignments, chromatograms, HTML report, clinical summary (Markdown/JSON), TSV, VCF, cohort overview |
-| **Benchmark** | Compares the automated engine with ClinGen expert-panel classifications (Evidence Repository) |
+| **Benchmark** | Compares the automated engine with ClinGen expert-panel classifications (Evidence Repository), with confidence intervals, kappa, breakdowns by panel and variant type, a simulation of entered clinical evidence, manuscript tables and 600 dpi figures |
 
 ## Screenshots
 
@@ -98,7 +100,7 @@ python3 -m pytest -q tests      # 50 tests, with or without Biopython
 
 - **Scope:** it analyses targeted sequences (Sanger, amplicons, cDNA, proteins), not whole-exome or genome VCF pipelines.
 - **Validation:** traces have been tested on real file formats with simulated variants. Validate on your laboratory's own data before use.
-- **Reviewer input:** some criteria need it (functional studies PS3/BS3, case-control data PS4). Family evidence is applied automatically only when relatives are sequenced.
+- **Clinical input:** some criteria need information a sequence cannot give (functional studies PS3/BS3, case data PS4, segregation PP1, phase PM3, phenotype PP4). Enter it with the guided clinical-evidence form or file; family evidence is applied automatically when relatives are sequenced.
 - **Databases:** online annotation needs internet access to NCBI, Ensembl, UniProt and gnomAD.
 
 ## Citation

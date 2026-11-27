@@ -84,10 +84,15 @@ The results include a **pedigree drawing** with genotypes, a **segregation table
 ```
 python3 -m clavagen benchmark -o benchmark/            # downloads the ClinGen Evidence Repository (internet needed)
 python3 -m clavagen benchmark --erepo erepo.tsv --max 300 --genes BRCA1,MYH7,PAH
+python3 -m clavagen benchmark --erepo erepo.tsv --max 0 -o benchmark_full    # all usable variants
+python3 -m clavagen benchmark --erepo erepo.tsv --max 0 -o benchmark_full --resume   # continue after an interruption
+python3 -m clavagen benchmark-figures benchmark_full                         # re-draw the figures
 ```
+For the figures, install matplotlib once: `.venv/bin/python -m pip install matplotlib` (or `pip install matplotlib`).
 **How it works:**
 - Variants come from the ClinGen Evidence Repository (expert-panel classifications); each needs an exonic `NM_` c. description.
 - For each one, a patient sequence carrying the variant is built from the RefSeq transcript (±150 nt) and analysed exactly like user input.
+- Many expert classifications use an older RefSeq version (e.g. `NM_000257.3`). Population and in-silico data are then looked up on the current version when its coding sequence has the same length (same c. numbering); the `note` column says when this happened.
 - The **ClinVar-based reported class is switched off**, and the variant's own known-variant record is removed ("leave-one-out"), so the benchmark measures the automated ACMG engine only.
 - **Gene-level evidence is recounted without the tested variant.** Hotspots (residues with ≥2 P/LP missense in ClinVar) and the loss-of-function mechanism (≥3 P/LP truncating variants) are derived from ClinVar, so the tested variant could otherwise count towards its own PM1 or PVS1. Values from the built-in gene list, your annotation file or gnomAD constraint are kept.
 
@@ -104,7 +109,12 @@ python3 -m clavagen benchmark --erepo erepo.tsv --max 300 --genes BRCA1,MYH7,PAH
     - *evidence strength:* same computable criteria, different strength (e.g. PVS1_Strong vs PVS1).
   - agreement with the **expert class recalculated from computable criteria only**, which measures errors of the tool rather than missing information.
 - `benchmark_results.tsv`, with one row per variant, including the recalculated expert class, the cause of any disagreement, and the criteria applied only by the tool, only by the experts, or with a different strength.
-- `benchmark_summary.json`.
+- `benchmark_results.jsonl`: the full record of every variant, written as it finishes (used by `--resume` and `benchmark-figures`).
+- `benchmark_summary.json`: all statistics, including 95% confidence intervals (Wilson score), Cohen's kappa (3-tier) and weighted kappa (5-class) with bootstrap intervals, P/LP and B/LB sensitivity and positive predictive value, breakdowns by panel, gene, variant type and expert tier, evidence coverage, and the run metadata (SHA-256 of the Evidence Repository file, Ensembl release, versions, dates).
+- `tables/`: manuscript-ready CSV tables (overall results, by panel/gene/variant type/tier, criteria, causes of disagreement, confusion matrix).
+- **With clinical evidence (simulation):** the criteria the experts based on clinical, functional, segregation or case data are added to CLAVAGEN's automated criteria, as if a user had entered them. This shows what the clinical-evidence input can add. It is an upper bound, because it assumes the user has the same evidence as the panel.
+- `methods_and_results.md`: a draft methods and results text with the numbers filled in. Check it before use.
+- `figures/`: six figures as 600 dpi PNG plus vector PDF and SVG (variant selection, confusion matrix, agreement with confidence intervals, forest plot by panel, criteria precision/recall, causes of disagreement) and `figure_legends.md` with draft legends.
 
 **Run time:** each variant needs online look-ups. A 200-variant run takes roughly 15–30 min; Biopython, installed by the start files, keeps the alignment fast.
 
@@ -277,6 +287,31 @@ You can also nest any of these under `references.{REF_ID}` to give per-reference
 
 If you don't supply an annotation, `--gene SYMBOL` loads a small built-in starter knowledge base (HBB, CFTR, BRCA1/2, TP53, MLH1, FBN1, LDLR, PAH, DMD, MYH7). Genes on the **ACMG SF v3.3** secondary-findings list (84 genes) are flagged.
 
+### Clinical evidence (`--clinical-evidence evidence.json`, or the guided form in the window)
+Sequence data cannot show segregation, phase, functional assays, case counts or phenotype. Describe what you observed, and CLAVAGEN converts it to the criterion and strength with the published ClinGen rules. The report shows the calculation, with the source "clinical".
+
+| You enter | Criterion | Rule used |
+|---|---|---|
+| Informative meioses (or a LOD score) | PP1 | >=3 Supporting, >=5 Moderate, >=7 Strong (default, as used by several ClinGen panels; a gene rule profile can change it) |
+| Times seen in trans with a pathogenic / likely pathogenic variant (phase confirmed or not), homozygous probands | PM3 | ClinGen SVI PM3 points: P confirmed 1, P unknown 0.5, LP confirmed 0.5, LP unknown 0.25, homozygous 0.5 each (max 1); 0.5 Supporting, 1 Moderate, 2 Strong, 4 VeryStrong |
+| Functional assay result with its OddsPath (or a strength) | PS3 / BS3 | Brnich et al. 2019: OddsPath >18.7 Strong, >4.3 Moderate, >2.1 Supporting; <0.053, <0.23, <0.48 for BS3 |
+| De novo probands (confirmed or assumed) and how specific the phenotype is | PS2 / PM6 | ClinGen SVI de novo points (specific: confirmed 2, assumed 1; consistent: 1 / 0.5; heterogeneous: 0.5 / 0.25, max 1); 0.5 Supporting ... 4 VeryStrong |
+| Case-control odds ratio and lower CI, or unrelated affected probands with the panel's strength | PS4 | ACMG: OR >= 5 with CI excluding 1 |
+| Healthy adults with the genotype; lack of segregation; in cis/trans observation; alternative cause; specific phenotype | BS2, BS4, BP2, BP5, PP4 | ACMG 2015 |
+
+Keys are a variant (`c.` or `p.`) or `*` for all variants of the patient. Get an example file with `clavagen evidence-template`. In a patient table, put the JSON in a `clinical_evidence` column. Codes typed in **Reviewer evidence** (below) still take priority.
+
+### Gene rule profiles (`--rules rules.json`, or section 3 in the window)
+Expert panels adapt the ACMG rules to their genes (thresholds, criteria they do not use, strengths). Copy these settings from the panel's specification in the ClinGen CSpec Registry (https://cspec.clinicalgenome.org) - do not guess them:
+
+```json
+{"MYH7": {"source": "ClinGen Cardiomyopathy VCEP specification v<version> (<URL>)",
+          "thresholds": {"ba1": 0.001, "bs1": 0.0002, "pm2": 0.00004},
+          "disabled": ["PP2"], "strength": {"PM2": "Moderate"}, "max_strength": {"PP3": "Supporting"},
+          "start_loss_pvs1": "Strong", "pp1_meioses": {"Supporting": 3, "Moderate": 5, "Strong": 7}}}
+```
+(the numbers above are placeholders). Use one profile for all references, or one per gene symbol or reference ID. Every change is shown in the report with the profile's `source`.
+
 ### Reviewer evidence (`-e`, `--evidence-file`)
 - Add a criterion: `"c.20A>T=PS3,PP1_Strong"`.
 - Remove an automated criterion: `"p.Glu7Val=-PM2"`.
@@ -342,4 +377,4 @@ pip install pytest && pytest -q
 - The software analyses only the region covered by the query. CNVs, large rearrangements and mosaicism are out of scope.
 - Zygosity comes from IUPAC codes. A consensus sequence cannot show heterozygous indels.
 - The built-in knowledge base and the example population and in-silico values are illustrative. Use current gnomAD, ClinVar, ClinGen and OMIM data in your annotation.
-- Disease-specific ClinGen VCEP specifications override the generic thresholds: set them with `thresholds` and reviewer evidence.
+- Disease-specific ClinGen VCEP specifications change the generic rules: enter them as a gene rule profile (`--rules`).

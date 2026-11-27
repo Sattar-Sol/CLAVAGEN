@@ -268,9 +268,11 @@ def protein_effect(ref_p, alt_p, frameshift=False, hint_pos=None, expected_len_c
         res.update(consequence="missense_variant", hgvs_p=f"p.({a3(D)}{i + 1}{a3(I)})", alt_aa=I,
                    aa_change=f"{D}{i + 1}{I}")
     elif not I:
+        res.update(_aa_repeat(ref_p, i, D))
         hg = f"p.({a3(D)}{i + 1}del)" if len(D) == 1 else f"p.({a3(D[0])}{i + 1}_{a3(D[-1])}{i + len(D)}del)"
         res.update(consequence="inframe_deletion", hgvs_p=hg, alt_aa="", aa_change=f"{D}{i + 1}del")
     elif not D:
+        res.update(_aa_repeat(ref_p, i, I))
         k = len(I)
         if i - k >= 0 and ref_p[i - k:i] == I:
             hg = (f"p.({a3(I)}{i}dup)" if k == 1 else f"p.({a3(I[0])}{i - k + 1}_{a3(I[-1])}{i}dup)")
@@ -280,10 +282,34 @@ def protein_effect(ref_p, alt_p, frameshift=False, hint_pos=None, expected_len_c
         res.update(consequence="inframe_insertion", hgvs_p=hg, alt_aa=I, ref_aa="", aa_change=f"{i}ins{I}")
     else:
         rng = f"{a3(D[0])}{i + 1}" if len(D) == 1 else f"{a3(D[0])}{i + 1}_{a3(D[-1])}{i + len(D)}"
+        res.update(_aa_repeat(ref_p, i, D))
         res.update(consequence="protein_altering_variant",
                    hgvs_p=f"p.({rng}delins{''.join(a3(c) for c in I)})", alt_aa=I, ref_aa=D,
                    aa_change=f"{D}{i + 1}delins{I}")
     return res
+
+
+def _aa_repeat(prot, i, motif):
+    """Protein-level repeat around an in-frame change at residue index i (0-based) of ``prot``.
+
+    The repeat unit is the shortest period of the changed residues (e.g. HHH -> H, AGAG -> AG); its
+    tandem copies are counted in the reference protein through position i. Used for BP3/PM4."""
+    if not motif or not prot:
+        return {"aa_repeat_unit": "", "aa_repeat_copies": 0, "aa_repeat_len": 0}
+    unit = next((motif[:k] for k in range(1, len(motif) + 1)
+                 if len(motif) % k == 0 and motif[:k] * (len(motif) // k) == motif), motif)
+    k = len(unit)
+    best = 0
+    for start in range(max(0, i - k), min(len(prot), i + 1)):   # phases of the unit around i
+        s = start
+        while s - k >= 0 and prot[s - k:s] == unit:
+            s -= k
+        n, e = 0, s
+        while prot[e:e + k] == unit:
+            n += 1
+            e += k
+        best = max(best, n)
+    return {"aa_repeat_unit": unit, "aa_repeat_copies": best, "aa_repeat_len": best * k}
 
 
 # ============================================================ HGVS helpers
