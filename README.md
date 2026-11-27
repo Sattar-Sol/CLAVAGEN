@@ -1,12 +1,12 @@
 # CLAVAGEN
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24446017.svg)](https://doi.org/10.5281/zenodo.24446017)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24613299.svg)](https://doi.org/10.5281/zenodo.24613299)
 
 **CL**assification · **A**lignment · **VA**riant calling · **GEN**otype & **GEN**ealogy
 
 ACMG/AMP variant classification for patients and families, from DNA, protein or Sanger sequences.
 
-![Python](https://img.shields.io/badge/python-3.8%2B-blue) ![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey) ![License](https://img.shields.io/badge/license-MIT-green) ![Tests](https://img.shields.io/badge/tests-88%20passing-brightgreen)
+![Python](https://img.shields.io/badge/python-3.8%2B-blue) ![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey) ![License](https://img.shields.io/badge/license-MIT-green) ![Tests](https://img.shields.io/badge/tests-91%20passing-brightgreen)
 
 CLAVAGEN is a desktop application for individual patients and whole families:
 - **Input:** it reads DNA sequences, protein sequences and Sanger traces (`.ab1`) in common file formats, against one or several reference genes.
